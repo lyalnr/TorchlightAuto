@@ -1,6 +1,7 @@
 package com.torchlight.auto
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -16,6 +17,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -28,14 +30,12 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
     private lateinit var tvLogs: TextView
     private lateinit var scrollView: ScrollView
-    private var logReceiver: BroadcastReceiver? = null
-    private var debugReceiver: BroadcastReceiver? = null
+    private var a11yReceiver: BroadcastReceiver? = null
     private var floatView: View? = null
     private var floatTv: TextView? = null
 
     companion object {
         private const val REQ_POST_NOTIFICATION = 100
-        private const val REQ_SHIZUKU = 200
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,7 +59,7 @@ class MainActivity : AppCompatActivity() {
 
         val btnStop = Button(this).apply {
             text = "⏹ 停止监控"
-            setOnClickListener { stopMonitoring() }
+            setOnClickListener { hideFloatWindow() }
         }
         root.addView(btnStop)
 
@@ -88,133 +88,83 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissions() {
-        // 通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-                appendLog("⚠️ 申请通知权限...")
                 ActivityCompat.requestPermissions(this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_POST_NOTIFICATION)
-            } else {
-                appendLog("✅ 通知权限已授权")
             }
         }
-
-        // 悬浮窗权限
         if (!Settings.canDrawOverlays(this)) {
-            appendLog("⚠️ 需要悬浮窗权限")
-            Toast.makeText(this, "请授予悬浮窗权限", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")))
+        }
+    }
+
+    private fun registerReceivers() {
+        a11yReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val text = intent?.getStringExtra("text") ?: return
+                appendLog("[A11y] $text")
+                updateFloatWindow(text)
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(a11yReceiver, IntentFilter(AutoAccessibilityService.ACTION_TEXT),
+                ContextCompat.RECEIVER_NOT_EXPORTED)
         } else {
-            appendLog("✅ 悬浮窗权限已授权")
+            registerReceiver(a11yReceiver, IntentFilter(AutoAccessibilityService.ACTION_TEXT))
         }
-
-        checkShizuku()
+        appendLog("📡 接收器已注册")
     }
 
-    private fun checkShizuku() {
-        try {
-            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-            val pingMethod = shizukuClass.getMethod("pingBinder")
-            val connected = pingMethod.invoke(null) as? Boolean ?: false
-
-            if (!connected) {
-                appendLog("❌ Shizuku 未启动")
-                appendLog("👉 请先打开 Shizuku 应用并启动服务")
-                return
-            }
-
-            // 检查是否已授权
-            val checkMethod = shizukuClass.getMethod("checkSelfPermission")
-            val granted = checkMethod.invoke(null) as? Int ?: PackageManager.PERMISSION_DENIED
-
-            if (granted == PackageManager.PERMISSION_GRANTED) {
-                appendLog("✅ Shizuku 已连接且已授权")
-            } else {
-                appendLog("❌ Shizuku 未授权本应用")
-                appendLog("👉 正在弹窗申请 Shizuku 授权...")
-                requestShizukuPermission()
-            }
-        } catch (e: Exception) {
-            appendLog("❌ Shizuku 检查失败: ${e.message}")
-        }
+    private fun isAccessibilityEnabled(): Boolean {
+        val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_GENERIC)
+        return enabledServices.any { it.resolveInfo.serviceInfo.packageName == packageName }
     }
 
-    private fun requestShizukuPermission() {
-        try {
-            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-            val reqMethod = shizukuClass.getMethod("requestPermission", Int::class.java)
-            reqMethod.invoke(null, REQ_SHIZUKU)
-            appendLog("📡 Shizuku 授权弹窗已发起")
-            Toast.makeText(this, "请点击「始终允许」", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            appendLog("⚠️ 无法自动弹窗: ${e.message}")
-            appendLog("👉 请手动去 Shizuku → 应用管理 → 日志监控 → 允许")
-        }
-    }
-
-    // 监听 Shizuku 授权结果
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        // 系统通知权限回调
-        if (requestCode == REQ_POST_NOTIFICATION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                appendLog("✅ 通知权限已授予")
-            } else {
-                appendLog("❌ 通知权限被拒绝")
-            }
+    private fun startMonitoring() {
+        if (!isAccessibilityEnabled()) {
+            appendLog("❌ 无障碍服务未开启")
+            appendLog("👉 正在跳转到系统设置...")
+            Toast.makeText(this, "请找到「日志监控」并开启", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             return
         }
 
-        // Shizuku 权限回调（Shizuku v13+ 也走这里）
-        if (requestCode == REQ_SHIZUKU) {
-            try {
-                val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-                val checkMethod = shizukuClass.getMethod("checkSelfPermission")
-                val granted = checkMethod.invoke(null) as? Int ?: PackageManager.PERMISSION_DENIED
-
-                if (granted == PackageManager.PERMISSION_GRANTED) {
-                    appendLog("✅ Shizuku 授权成功！")
-                } else {
-                    appendLog("❌ Shizuku 授权被拒绝")
-                    appendLog("👉 请去 Shizuku → 应用管理 → 日志监控 → 允许")
-                }
-            } catch (e: Exception) {
-                appendLog("⚠️ 授权结果检查失败: ${e.message}")
-            }
+        if (!Settings.canDrawOverlays(this)) {
+            appendLog("❌ 需要悬浮窗权限")
+            return
         }
+
+        appendLog("✅ 无障碍服务已开启")
+        appendLog("🎮 请切到游戏，捡东西测试...")
+        showFloatWindow()
     }
 
     private fun showFloatWindow() {
-        if (!Settings.canDrawOverlays(this)) return
         if (floatView != null) return
-
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else
-            WindowManager.LayoutParams.TYPE_PHONE
+        else WindowManager.LayoutParams.TYPE_PHONE
 
         val params = WindowManager.LayoutParams(
-            600, 400,
-            type,
+            600, 300, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 50
-            y = 200
+            x = 50; y = 200
         }
 
         floatView = LayoutInflater.from(this).inflate(android.R.layout.simple_list_item_1, null)
         floatTv = floatView?.findViewById(android.R.id.text1)
-        floatTv?.text = "日志监控悬浮窗\n等待日志..."
+        floatTv?.text = "无障碍监控中...\n等待掉落..."
         floatTv?.setBackgroundColor(0xCC000000.toInt())
         floatTv?.setTextColor(0xFFFFFFFF.toInt())
         floatTv?.setPadding(16, 16, 16, 16)
-
         wm.addView(floatView, params)
         appendLog("🪟 悬浮窗已显示")
     }
@@ -222,56 +172,14 @@ class MainActivity : AppCompatActivity() {
     private fun hideFloatWindow() {
         floatView?.let {
             try {
-                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                wm.removeView(it)
+                (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(it)
             } catch (_: Exception) {}
             floatView = null
         }
     }
 
     private fun updateFloatWindow(msg: String) {
-        runOnUiThread {
-            floatTv?.text = "日志监控\n$msg"
-        }
-    }
-
-    private fun registerReceivers() {
-        logReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val entry = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent?.getParcelableExtra("entry", LogEntry::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent?.getParcelableExtra("entry")
-                }
-                entry?.let {
-                    val text = "[掉落] ${it.item} x${it.quantity}"
-                    appendLog(text)
-                    updateFloatWindow(text)
-                }
-            }
-        }
-
-        debugReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val msg = intent?.getStringExtra("msg") ?: return
-                appendLog(msg)
-                if (msg.contains("掉落") || msg.contains("[")) {
-                    updateFloatWindow(msg)
-                }
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(logReceiver, IntentFilter(LogMonitorService.ACTION_LOG_ENTRY),
-                ContextCompat.RECEIVER_NOT_EXPORTED)
-            registerReceiver(debugReceiver, IntentFilter(LogMonitorService.ACTION_DEBUG),
-                ContextCompat.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(logReceiver, IntentFilter(LogMonitorService.ACTION_LOG_ENTRY))
-            registerReceiver(debugReceiver, IntentFilter(LogMonitorService.ACTION_DEBUG))
-        }
-        appendLog("📡 广播接收器已注册")
+        runOnUiThread { floatTv?.text = "无障碍捕获\n$msg" }
     }
 
     private fun appendLog(msg: String) {
@@ -281,67 +189,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun startMonitoring() {
-        // 检查 Shizuku 授权
-        try {
-            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-            val pingMethod = shizukuClass.getMethod("pingBinder")
-            val connected = pingMethod.invoke(null) as? Boolean ?: false
-            if (!connected) {
-                appendLog("❌ Shizuku 未启动")
-                return
-            }
-            val checkMethod = shizukuClass.getMethod("checkSelfPermission")
-            val granted = checkMethod.invoke(null) as? Int ?: PackageManager.PERMISSION_DENIED
-            if (granted != PackageManager.PERMISSION_GRANTED) {
-                appendLog("❌ Shizuku 未授权，正在弹窗申请...")
-                requestShizukuPermission()
-                return
-            }
-        } catch (e: Exception) {
-            appendLog("❌ Shizuku 检查失败: ${e.message}")
-            return
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-                appendLog("❌ 请先授予通知权限")
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_POST_NOTIFICATION)
-                return
-            }
-        }
-
-        try {
-            val intent = Intent(this, LogMonitorService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            appendLog(">>> 服务启动指令已发送")
-            showFloatWindow()
-        } catch (e: Exception) {
-            appendLog(">>> 💥 启动失败: ${e.message}")
-            Log.e("MainActivity", "Start error", e)
-        }
-    }
-
-    private fun stopMonitoring() {
-        try {
-            stopService(Intent(this, LogMonitorService::class.java))
-            appendLog(">>> 服务已停止")
-            hideFloatWindow()
-        } catch (e: Exception) {
-            appendLog(">>> 停止失败: ${e.message}")
-        }
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         hideFloatWindow()
-        try { logReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
-        try { debugReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        try { a11yReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
     }
 }
