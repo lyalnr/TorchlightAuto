@@ -15,6 +15,7 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import rikka.shizuku.Shizuku
@@ -49,87 +50,80 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // ✅ 全局 try-catch：崩溃时弹出 Toast 显示错误信息
-        try {
-            setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_main)
 
-            recyclerView = findViewById(R.id.recyclerView)
-            totalText = findViewById(R.id.totalText)
-            pathInput = findViewById(R.id.pathInput)
-            savePathButton = findViewById(R.id.savePathButton)
-            startStopButton = findViewById(R.id.startStopButton)
-            floatToggleButton = findViewById(R.id.floatToggleButton)
+        recyclerView = findViewById(R.id.recyclerView)
+        totalText = findViewById(R.id.totalText)
+        pathInput = findViewById(R.id.pathInput)
+        savePathButton = findViewById(R.id.savePathButton)
+        startStopButton = findViewById(R.id.startStopButton)
+        floatToggleButton = findViewById(R.id.floatToggleButton)
 
-            prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-            val savedPath = prefs.getString(KEY_LOG_PATH, "")
-            if (!savedPath.isNullOrEmpty()) {
-                pathInput.setText(savedPath)
-            }
-
-            adapter = LogAdapter()
-            recyclerView.layoutManager = LinearLayoutManager(this)
-            recyclerView.adapter = adapter
-
-            // 安全初始化 Shizuku
-            if (Shizuku.pingBinder()) {
-                checkShizukuPermission()
-            }
-
-            savePathButton.setOnClickListener {
-                val newPath = pathInput.text.toString().trim()
-                if (newPath.isNotEmpty()) {
-                    prefs.edit().putString(KEY_LOG_PATH, newPath).apply()
-                    Toast.makeText(this, "路径已保存", Toast.LENGTH_SHORT).show()
-                }
-            }
-
-            startStopButton.setOnClickListener {
-                if (isMonitoring) {
-                    stopMonitoring()
-                } else {
-                    if (!Shizuku.pingBinder()) {
-                        Toast.makeText(this, "Shizuku 未连接，请先启动 Shizuku", Toast.LENGTH_LONG).show()
-                        return@setOnClickListener
-                    }
-                    val path = pathInput.text.toString().trim()
-                    if (path.isEmpty()) {
-                        Toast.makeText(this, "请先输入日志路径", Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-                    prefs.edit().putString(KEY_LOG_PATH, path).apply()
-                    startMonitoring(path)
-                }
-            }
-
-            floatToggleButton.setOnClickListener {
-                if (isFloating) {
-                    stopFloating()
-                } else {
-                    if (checkOverlayPermission()) {
-                        startFloating()
-                    } else {
-                        requestOverlayPermission()
-                    }
-                }
-            }
-
-            isFloating = prefs.getBoolean(KEY_FLOATING, false)
-            floatToggleButton.text = if (isFloating) "关闭悬浮窗" else "开启悬浮窗"
-            
-        } catch (e: Exception) {
-            Toast.makeText(this, "启动崩溃: ${e.javaClass.simpleName}: ${e.message}", Toast.LENGTH_LONG).show()
-            e.printStackTrace()
+        val savedPath = prefs.getString(KEY_LOG_PATH, "")
+        if (!savedPath.isNullOrEmpty()) {
+            pathInput.setText(savedPath)
         }
+
+        adapter = LogAdapter()
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        recyclerView.adapter = adapter
+
+        if (Shizuku.pingBinder()) {
+            checkShizukuPermission()
+        }
+
+        savePathButton.setOnClickListener {
+            val newPath = pathInput.text.toString().trim()
+            if (newPath.isNotEmpty()) {
+                prefs.edit().putString(KEY_LOG_PATH, newPath).apply()
+                Toast.makeText(this, "路径已保存", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        startStopButton.setOnClickListener {
+            if (isMonitoring) {
+                stopMonitoring()
+            } else {
+                if (!Shizuku.pingBinder()) {
+                    Toast.makeText(this, "Shizuku 未连接，请先启动 Shizuku", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val path = pathInput.text.toString().trim()
+                if (path.isEmpty()) {
+                    Toast.makeText(this, "请先输入日志路径", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                prefs.edit().putString(KEY_LOG_PATH, path).apply()
+                startMonitoring(path)
+            }
+        }
+
+        floatToggleButton.setOnClickListener {
+            if (isFloating) {
+                stopFloating()
+            } else {
+                if (checkOverlayPermission()) {
+                    startFloating()
+                } else {
+                    requestOverlayPermission()
+                }
+            }
+        }
+
+        isFloating = prefs.getBoolean(KEY_FLOATING, false)
+        floatToggleButton.text = if (isFloating) "关闭悬浮窗" else "开启悬浮窗"
     }
 
     override fun onResume() {
         super.onResume()
-        try {
-            registerReceiver(logReceiver, IntentFilter("LOG_ENTRY"))
-        } catch (e: Exception) {
-            Toast.makeText(this, "注册广播失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        // ✅ Android 14+ 需要指定 RECEIVER_NOT_EXPORTED
+        val filter = IntentFilter("LOG_ENTRY")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            registerReceiver(logReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(logReceiver, filter)
         }
     }
 
