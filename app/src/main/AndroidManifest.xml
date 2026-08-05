@@ -3,19 +3,17 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:allowBackup="true"
-        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:label="日志监控"
+        android:theme="@style/Theme.AppCompat.Light.DarkActionBar"
         android:supportsRtl="true"
-        android:theme="@style/Theme.TorchlightAuto">
-
+        tools:targetApi="31">
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -23,5 +21,9 @@
             </intent-filter>
         </activity>
 
+        <service
+            android:name=".LogMonitorService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 </manifest>
