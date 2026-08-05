@@ -66,18 +66,17 @@ class LogMonitorService : Service() {
 
                 sendDebug("正在启动 logcat 抓取...")
 
-                // 执行 logcat 并过滤关键词
                 val process = execShell(
                     "logcat -v threadtime | grep -iE 'pickup|drop|item|获得|掉落|拾取|AddItem|ItemID|奖励|战利品|物品|通货|装备|传奇|稀有|史诗'"
                 ) ?: return@Thread
 
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
-                var line: String?
+                var line: String? = null
                 var count = 0
 
                 while (running && reader.readLine().also { line = it } != null) {
                     count++
-                    val trimmed = line!!.trim()
+                    val trimmed = line?.trim() ?: ""
                     if (trimmed.isNotEmpty()) {
                         sendDebug("[$count] $trimmed")
                         processLine(trimmed)
