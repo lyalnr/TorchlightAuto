@@ -21,7 +21,6 @@ class LogMonitorService : Service() {
     private var logPath = ""
 
     companion object {
-        // 只匹配物品名和数量，不限制具体格式
         private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
@@ -82,33 +81,54 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
-            val process = Shizuku.newProcess(
-                arrayOf("sh", "-c", "wc -l < \"$logPath\""),
-                null, null
-            )
-            val wcReader = BufferedReader(InputStreamReader(process.inputStream))
-            val lineCountStr = wcReader.readText().trim()
-            wcReader.close()
-            val totalLines = lineCountStr.toLongOrNull() ?: 0
-            process.waitFor()
 
+            val totalLines = getLineCount() ?: return
             if (totalLines > lastLineCount) {
                 val startLine = lastLineCount + 1
-                val tailProcess = Shizuku.newProcess(
-                    arrayOf("sh", "-c", "tail -n +$startLine \"$logPath\""),
-                    null, null
-                )
-                val tailReader = BufferedReader(InputStreamReader(tailProcess.inputStream))
-                var line: String?
-                while (tailReader.readLine().also { line = it } != null) {
-                    processLine(line!!)
-                }
-                tailReader.close()
-                tailProcess.waitFor()
+                readLinesFrom(startLine)
                 lastLineCount = totalLines
             }
         } catch (e: Exception) {
             Log.e("LogMonitor", "读取日志失败", e)
+        }
+    }
+
+    private fun getLineCount(): Long? {
+        val process = execShell("wc -l < \"$logPath\"") ?: return null
+        val reader = BufferedReader(InputStreamReader(process.inputStream))
+        val result = reader.readText().trim().toLongOrNull()
+        reader.close()
+        process.waitFor()
+        return result
+    }
+
+    private fun readLinesFrom(startLine: Long) {
+        val process = execShell("tail -n +$startLine \"$logPath\"") ?: return
+        val reader = BufferedReader(InputStreamReader(process.inputStream))
+        var line: String?
+        while (reader.readLine().also { line = it } != null) {
+            processLine(line!!)
+        }
+        reader.close()
+        process.waitFor()
+    }
+
+    /**
+     * 使用反射调用 Shizuku.newProcess()，绕过 private 限制
+     */
+    private fun execShell(command: String): Process? {
+        return try {
+            val method = Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+            method.isAccessible = true
+            method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
+        } catch (e: Exception) {
+            Log.e("LogMonitor", "Shizuku 反射执行失败: ${e.message}", e)
+            null
         }
     }
 
@@ -117,7 +137,6 @@ class LogMonitorService : Service() {
         if (matchResult != null) {
             val itemName = matchResult.groupValues[1]
             val quantity = matchResult.groupValues[2].toIntOrNull() ?: 0
-            // 只记录物品和数量，不计算价格
             val entry = LogEntry(
                 timestamp = System.currentTimeMillis(),
                 item = itemName,
