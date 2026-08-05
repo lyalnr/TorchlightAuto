@@ -1,25 +1,15 @@
 package com.torchlight.auto
-import android.view.LayoutInflater
-import android.view.ViewGroup
-import android.widget.TextView
+import android.view.*
+import android.widget.*
 import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 class LogAdapter : RecyclerView.Adapter<LogAdapter.ViewHolder>() {
     private val entries = mutableListOf<LogEntry>()
-    private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    fun addEntry(entry: LogEntry) { entries.add(0, entry); if (entries.size > 100) entries.removeAt(entries.lastIndex); notifyItemInserted(0) }
+    fun addEntry(e: LogEntry) { entries.add(0, e); if(entries.size>100)entries.removeAt(entries.lastIndex); notifyItemInserted(0) }
     fun getTotalFire() = entries.sumOf { it.fireValue }
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(LayoutInflater.from(parent.context).inflate(android.R.layout.simple_list_item_2, parent, false))
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val entry = entries[position]
-        holder.text1.text = "${entry.item} x${entry.quantity}  +${entry.fireValue}火"
-        holder.text2.text = "${dateFormat.format(Date(entry.timestamp))}  ${entry.rawLine.take(30)}"
-    }
+    override fun onCreateViewHolder(p: ViewGroup, t: Int) = ViewHolder(LayoutInflater.from(p.context).inflate(android.R.layout.simple_list_item_2, p, false))
+    override fun onBindViewHolder(h: ViewHolder, p: Int) { h.text1.text = "${entries[p].item} x${entries[p].quantity} +${entries[p].fireValue}火"; h.text2.text = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(entries[p].timestamp)) + entries[p].rawLine.take(20) }
     override fun getItemCount() = entries.size
-    class ViewHolder(itemView: android.view.View) : RecyclerView.ViewHolder(itemView) {
-        val text1: TextView = itemView.findViewById(android.R.id.text1)
-        val text2: TextView = itemView.findViewById(android.R.id.text2)
-    }
+    class ViewHolder(v: View) : RecyclerView.ViewHolder(v) { val text1 = v.findViewById<TextView>(android.R.id.text1); val text2 = v.findViewById<TextView>(android.R.id.text2) }
 }
