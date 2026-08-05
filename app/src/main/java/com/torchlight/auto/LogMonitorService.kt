@@ -12,8 +12,6 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import rikka.shizuku.Shizuku
-import rikka.shizuku.ShizukuBinderWrapper
-import rikka.shizuku.ShizukuRemoteProcess
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -42,9 +40,7 @@ class LogMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.let {
-            logPath = it.getStringExtra("log_path") ?: ""
-        }
+        intent?.let { logPath = it.getStringExtra("log_path") ?: "" }
         if (logPath.isNotEmpty()) {
             startMonitoring()
         } else {
@@ -92,27 +88,23 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
-            // 通过 Shizuku 执行 shell 命令（兼容方法）
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", "wc -l < \"$logPath\""), null, null)
-            val wcReader = BufferedReader(InputStreamReader(process.inputStream))
+            val service = Shizuku.getService() ?: return
+            // 获取当前文件总行数
+            val wcPfd = service.executeShellCommand("wc -l < \"$logPath\"")
+            val wcReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(wcPfd)))
             val lineCountStr = wcReader.readText().trim()
             wcReader.close()
             val totalLines = lineCountStr.toLongOrNull() ?: 0
-            process.waitFor()
 
             if (totalLines > lastLineCount) {
                 val startLine = lastLineCount + 1
-                val tailProcess = Shizuku.newProcess(
-                    arrayOf("sh", "-c", "tail -n +$startLine \"$logPath\""),
-                    null, null
-                )
-                val tailReader = BufferedReader(InputStreamReader(tailProcess.inputStream))
+                val tailPfd = service.executeShellCommand("tail -n +$startLine \"$logPath\"")
+                val tailReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(tailPfd)))
                 var line: String?
                 while (tailReader.readLine().also { line = it } != null) {
                     processLine(line!!)
                 }
                 tailReader.close()
-                tailProcess.waitFor()
                 lastLineCount = totalLines
             }
         } catch (e: Exception) {
