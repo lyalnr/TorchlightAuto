@@ -88,23 +88,24 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
-            val service = Shizuku.getService() ?: return
-            // 获取当前文件总行数
-            val wcPfd = service.executeShellCommand("wc -l < \"$logPath\"")
-            val wcReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(wcPfd)))
+            // 使用 Shizuku.Su 执行 shell 命令（兼容所有版本）
+            val process = Shizuku.Su.run(arrayOf("sh", "-c", "wc -l < \"$logPath\""))
+            val wcReader = BufferedReader(InputStreamReader(process.inputStream))
             val lineCountStr = wcReader.readText().trim()
             wcReader.close()
             val totalLines = lineCountStr.toLongOrNull() ?: 0
+            process.waitFor()
 
             if (totalLines > lastLineCount) {
                 val startLine = lastLineCount + 1
-                val tailPfd = service.executeShellCommand("tail -n +$startLine \"$logPath\"")
-                val tailReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(tailPfd)))
+                val tailProcess = Shizuku.Su.run(arrayOf("sh", "-c", "tail -n +$startLine \"$logPath\""))
+                val tailReader = BufferedReader(InputStreamReader(tailProcess.inputStream))
                 var line: String?
                 while (tailReader.readLine().also { line = it } != null) {
                     processLine(line!!)
                 }
                 tailReader.close()
+                tailProcess.waitFor()
                 lastLineCount = totalLines
             }
         } catch (e: Exception) {
