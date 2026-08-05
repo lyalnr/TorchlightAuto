@@ -49,78 +49,97 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        
+        // ✅ 全局 try-catch：崩溃时弹出 Toast 显示错误信息
+        try {
+            setContentView(R.layout.activity_main)
 
-        recyclerView = findViewById(R.id.recyclerView)
-        totalText = findViewById(R.id.totalText)
-        pathInput = findViewById(R.id.pathInput)
-        savePathButton = findViewById(R.id.savePathButton)
-        startStopButton = findViewById(R.id.startStopButton)
-        floatToggleButton = findViewById(R.id.floatToggleButton)
+            recyclerView = findViewById(R.id.recyclerView)
+            totalText = findViewById(R.id.totalText)
+            pathInput = findViewById(R.id.pathInput)
+            savePathButton = findViewById(R.id.savePathButton)
+            startStopButton = findViewById(R.id.startStopButton)
+            floatToggleButton = findViewById(R.id.floatToggleButton)
 
-        prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-        val savedPath = prefs.getString(KEY_LOG_PATH, "")
-        if (!savedPath.isNullOrEmpty()) {
-            pathInput.setText(savedPath)
-        }
-
-        adapter = LogAdapter()
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = adapter
-
-        checkShizukuPermission()
-
-        savePathButton.setOnClickListener {
-            val newPath = pathInput.text.toString().trim()
-            if (newPath.isNotEmpty()) {
-                prefs.edit().putString(KEY_LOG_PATH, newPath).apply()
-                Toast.makeText(this, "路径已保存", Toast.LENGTH_SHORT).show()
+            val savedPath = prefs.getString(KEY_LOG_PATH, "")
+            if (!savedPath.isNullOrEmpty()) {
+                pathInput.setText(savedPath)
             }
-        }
 
-        startStopButton.setOnClickListener {
-            if (isMonitoring) {
-                stopMonitoring()
-            } else {
-                if (!Shizuku.pingBinder()) {
-                    Toast.makeText(this, "Shizuku 未连接", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                val path = pathInput.text.toString().trim()
-                if (path.isEmpty()) {
-                    Toast.makeText(this, "请先输入日志路径", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                prefs.edit().putString(KEY_LOG_PATH, path).apply()
-                startMonitoring(path)
+            adapter = LogAdapter()
+            recyclerView.layoutManager = LinearLayoutManager(this)
+            recyclerView.adapter = adapter
+
+            // 安全初始化 Shizuku
+            if (Shizuku.pingBinder()) {
+                checkShizukuPermission()
             }
-        }
 
-        floatToggleButton.setOnClickListener {
-            if (isFloating) {
-                stopFloating()
-            } else {
-                if (checkOverlayPermission()) {
-                    startFloating()
+            savePathButton.setOnClickListener {
+                val newPath = pathInput.text.toString().trim()
+                if (newPath.isNotEmpty()) {
+                    prefs.edit().putString(KEY_LOG_PATH, newPath).apply()
+                    Toast.makeText(this, "路径已保存", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            startStopButton.setOnClickListener {
+                if (isMonitoring) {
+                    stopMonitoring()
                 } else {
-                    requestOverlayPermission()
+                    if (!Shizuku.pingBinder()) {
+                        Toast.makeText(this, "Shizuku 未连接，请先启动 Shizuku", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    val path = pathInput.text.toString().trim()
+                    if (path.isEmpty()) {
+                        Toast.makeText(this, "请先输入日志路径", Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+                    prefs.edit().putString(KEY_LOG_PATH, path).apply()
+                    startMonitoring(path)
                 }
             }
-        }
 
-        isFloating = prefs.getBoolean(KEY_FLOATING, false)
-        floatToggleButton.text = if (isFloating) "关闭悬浮窗" else "开启悬浮窗"
+            floatToggleButton.setOnClickListener {
+                if (isFloating) {
+                    stopFloating()
+                } else {
+                    if (checkOverlayPermission()) {
+                        startFloating()
+                    } else {
+                        requestOverlayPermission()
+                    }
+                }
+            }
+
+            isFloating = prefs.getBoolean(KEY_FLOATING, false)
+            floatToggleButton.text = if (isFloating) "关闭悬浮窗" else "开启悬浮窗"
+            
+        } catch (e: Exception) {
+            Toast.makeText(this, "启动崩溃: ${e.javaClass.simpleName}: ${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        registerReceiver(logReceiver, IntentFilter("LOG_ENTRY"))
+        try {
+            registerReceiver(logReceiver, IntentFilter("LOG_ENTRY"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "注册广播失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        unregisterReceiver(logReceiver)
+        try {
+            unregisterReceiver(logReceiver)
+        } catch (e: Exception) {
+            // 忽略
+        }
     }
 
     private fun checkOverlayPermission(): Boolean =
@@ -172,8 +191,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkShizukuPermission() {
-        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-            Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
+        try {
+            if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Shizuku 权限检查失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -195,12 +218,16 @@ class MainActivity : AppCompatActivity() {
 
     fun updateUI(entry: LogEntry) {
         runOnUiThread {
-            adapter.addEntry(entry)
-            val total = adapter.getTotalFire()
-            totalText.text = "总火值: $total"
-            FloatingWindowService.updateData(total, entry)
-            if (isFloating) {
-                sendBroadcast(Intent("UPDATE_FLOATING"))
+            try {
+                adapter.addEntry(entry)
+                val total = adapter.getTotalFire()
+                totalText.text = "总火值: $total"
+                FloatingWindowService.updateData(total, entry)
+                if (isFloating) {
+                    sendBroadcast(Intent("UPDATE_FLOATING"))
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "UI更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
