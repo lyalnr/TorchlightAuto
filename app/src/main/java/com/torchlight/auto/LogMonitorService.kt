@@ -87,34 +87,57 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
-            // ✅ 使用 Shizuku.newProcess() (需要 13.x+)
-            val process = Shizuku.newProcess(
-                arrayOf("sh", "-c", "wc -l < \"$logPath\""),
-                null, null
-            )
-            val wcReader = BufferedReader(InputStreamReader(process.inputStream))
-            val lineCountStr = wcReader.readText().trim()
-            wcReader.close()
-            val totalLines = lineCountStr.toLongOrNull() ?: 0
-            process.waitFor()
 
+            val totalLines = getLineCount() ?: return
             if (totalLines > lastLineCount) {
                 val startLine = lastLineCount + 1
-                val tailProcess = Shizuku.newProcess(
-                    arrayOf("sh", "-c", "tail -n +$startLine \"$logPath\""),
-                    null, null
-                )
-                val tailReader = BufferedReader(InputStreamReader(tailProcess.inputStream))
-                var line: String?
-                while (tailReader.readLine().also { line = it } != null) {
-                    processLine(line!!)
-                }
-                tailReader.close()
-                tailProcess.waitFor()
+                readLinesFrom(startLine)
                 lastLineCount = totalLines
             }
         } catch (e: Exception) {
             Log.e("LogMonitor", "读取日志失败", e)
+        }
+    }
+
+    private fun getLineCount(): Long? {
+        val process = shizukuExec("wc -l < \"$logPath\"") ?: return null
+        val reader = BufferedReader(InputStreamReader(process.inputStream))
+        val result = reader.readText().trim().toLongOrNull()
+        reader.close()
+        process.waitFor()
+        return result
+    }
+
+    private fun readLinesFrom(startLine: Long) {
+        val process = shizukuExec("tail -n +$startLine \"$logPath\"") ?: return
+        val reader = BufferedReader(InputStreamReader(process.inputStream))
+        var line: String?
+        while (reader.readLine().also { line = it } != null) {
+            processLine(line!!)
+        }
+        reader.close()
+        process.waitFor()
+    }
+
+    /**
+     * 使用反射调用 Shizuku.newProcess()，兼容 private 访问限制
+     */
+    private fun shizukuExec(command: String): Process? {
+        return try {
+            val method = Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            )
+            method.isAccessible = true
+            method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
+        } catch (e: NoSuchMethodException) {
+            Log.e("LogMonitor", "Shizuku.newProcess() 不存在，请升级 Shizuku 到 13.x+", e)
+            null
+        } catch (e: Exception) {
+            Log.e("LogMonitor", "Shizuku 执行命令失败: $command", e)
+            null
         }
     }
 
