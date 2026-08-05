@@ -214,9 +214,8 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             try {
                 adapter.addEntry(entry)
-                val total = adapter.getTotalFire()
-                totalText.text = "总火值: $total"
-                FloatingWindowService.updateData(total, entry)
+                totalText.text = "${entry.item} x${entry.quantity}"
+                FloatingWindowService.updateData(0, entry)
                 if (isFloating) {
                     sendBroadcast(Intent("UPDATE_FLOATING"))
                 }

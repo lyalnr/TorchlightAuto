@@ -16,12 +16,12 @@ class FloatingWindowService : Service() {
     private var floatView: View? = null
 
     companion object {
-        private var lastTotal: Int = 0
-        private var lastEntry: LogEntry? = null
+        private var lastItem: String = ""
+        private var lastQuantity: Int = 0
 
         fun updateData(total: Int, entry: LogEntry) {
-            lastTotal = total
-            lastEntry = entry
+            lastItem = entry.item
+            lastQuantity = entry.quantity
         }
     }
 
@@ -46,9 +46,8 @@ class FloatingWindowService : Service() {
         params.x = 100
         params.y = 100
 
-        // 如果没有布局文件，创建一个简单的 TextView
         val textView = TextView(this)
-        textView.text = "总火值: 0"
+        textView.text = "等待掉落..."
         textView.setBackgroundColor(0xAA000000.toInt())
         textView.setTextColor(0xFFFFFFFF.toInt())
         textView.setPadding(20, 10, 20, 10)
@@ -59,7 +58,8 @@ class FloatingWindowService : Service() {
     }
 
     private fun updateFloatingView() {
-        (floatView as? TextView)?.text = "总火值: $lastTotal\n${lastEntry?.item ?: ""} x${lastEntry?.quantity ?: 0}"
+        val text = if (lastItem.isEmpty()) "等待掉落..." else "$lastItem x$lastQuantity"
+        (floatView as? TextView)?.text = text
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

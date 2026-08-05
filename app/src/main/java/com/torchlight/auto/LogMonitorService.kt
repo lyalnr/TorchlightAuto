@@ -21,13 +21,8 @@ class LogMonitorService : Service() {
     private var logPath = ""
 
     companion object {
+        // 只匹配物品名和数量，不限制具体格式
         private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
-        private val ITEM_PRICE = mapOf(
-            "铁矿石" to 5,
-            "铜矿石" to 10,
-            "金币" to 1,
-            "宝石" to 100
-        )
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
     }
@@ -87,57 +82,33 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
+            val process = Shizuku.newProcess(
+                arrayOf("sh", "-c", "wc -l < \"$logPath\""),
+                null, null
+            )
+            val wcReader = BufferedReader(InputStreamReader(process.inputStream))
+            val lineCountStr = wcReader.readText().trim()
+            wcReader.close()
+            val totalLines = lineCountStr.toLongOrNull() ?: 0
+            process.waitFor()
 
-            val totalLines = getLineCount() ?: return
             if (totalLines > lastLineCount) {
                 val startLine = lastLineCount + 1
-                readLinesFrom(startLine)
+                val tailProcess = Shizuku.newProcess(
+                    arrayOf("sh", "-c", "tail -n +$startLine \"$logPath\""),
+                    null, null
+                )
+                val tailReader = BufferedReader(InputStreamReader(tailProcess.inputStream))
+                var line: String?
+                while (tailReader.readLine().also { line = it } != null) {
+                    processLine(line!!)
+                }
+                tailReader.close()
+                tailProcess.waitFor()
                 lastLineCount = totalLines
             }
         } catch (e: Exception) {
             Log.e("LogMonitor", "读取日志失败", e)
-        }
-    }
-
-    private fun getLineCount(): Long? {
-        val process = shizukuExec("wc -l < \"$logPath\"") ?: return null
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val result = reader.readText().trim().toLongOrNull()
-        reader.close()
-        process.waitFor()
-        return result
-    }
-
-    private fun readLinesFrom(startLine: Long) {
-        val process = shizukuExec("tail -n +$startLine \"$logPath\"") ?: return
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        var line: String?
-        while (reader.readLine().also { line = it } != null) {
-            processLine(line!!)
-        }
-        reader.close()
-        process.waitFor()
-    }
-
-    /**
-     * 使用反射调用 Shizuku.newProcess()，兼容 private 访问限制
-     */
-    private fun shizukuExec(command: String): Process? {
-        return try {
-            val method = Shizuku::class.java.getDeclaredMethod(
-                "newProcess",
-                Array<String>::class.java,
-                Array<String>::class.java,
-                String::class.java
-            )
-            method.isAccessible = true
-            method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
-        } catch (e: NoSuchMethodException) {
-            Log.e("LogMonitor", "Shizuku.newProcess() 不存在，请升级 Shizuku 到 13.x+", e)
-            null
-        } catch (e: Exception) {
-            Log.e("LogMonitor", "Shizuku 执行命令失败: $command", e)
-            null
         }
     }
 
@@ -146,13 +117,12 @@ class LogMonitorService : Service() {
         if (matchResult != null) {
             val itemName = matchResult.groupValues[1]
             val quantity = matchResult.groupValues[2].toIntOrNull() ?: 0
-            val price = ITEM_PRICE[itemName] ?: 0
-            val totalFire = price * quantity
+            // 只记录物品和数量，不计算价格
             val entry = LogEntry(
                 timestamp = System.currentTimeMillis(),
                 item = itemName,
                 quantity = quantity,
-                fireValue = totalFire,
+                fireValue = 0,
                 rawLine = line
             )
             val intent = Intent("LOG_ENTRY")
