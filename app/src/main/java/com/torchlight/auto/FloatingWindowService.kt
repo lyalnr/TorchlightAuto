@@ -1,8 +1,5 @@
 package com.torchlight.auto
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -20,8 +17,6 @@ class FloatingWindowService : Service() {
     companion object {
         private var lastItem: String = ""
         private var lastQuantity: Int = 0
-        private const val CHANNEL_ID = "float_window_channel"
-        private const val NOTIFICATION_ID = 1002
 
         fun updateData(total: Int, entry: LogEntry) {
             lastItem = entry.item
@@ -31,29 +26,8 @@ class FloatingWindowService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         showFloatingWindow()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "悬浮窗服务",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
-    }
-
-    private fun createNotification(): Notification {
-        return android.app.Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("掉落监控")
-            .setContentText("悬浮窗运行中")
-            .setSmallIcon(android.R.drawable.ic_menu_info_details)
-            .build()
     }
 
     private fun showFloatingWindow() {
@@ -82,7 +56,7 @@ class FloatingWindowService : Service() {
         try {
             windowManager.addView(floatView, params)
         } catch (e: Exception) {
-            // 可能已经存在
+            // 可能已存在或其他问题
         }
     }
 
