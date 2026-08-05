@@ -6,21 +6,19 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Build
-import android.os.FileObserver
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
-import java.io.File
 import java.io.InputStreamReader
 
 class LogMonitorService : Service() {
-    private lateinit var fileObserver: FileObserver
-    private var lastLineCount = 0L
-    private var logPath = ""
+    private var logcatThread: Thread? = null
+    private var running = false
 
     companion object {
+        private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
     }
@@ -32,16 +30,9 @@ class LogMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.let { logPath = it.getStringExtra("log_path") ?: "" }
-        if (logPath.isNotEmpty()) {
-            // 先发送一条调试消息：路径和文件是否存在
-            sendDebug("路径: $logPath")
-            sendDebug("文件存在: ${File(logPath).exists()}")
-            sendDebug("可读: ${File(logPath).canRead()}")
-            startMonitoring()
-        } else {
-            sendDebug("错误: 未收到日志路径")
-            stopSelf()
+        if (!running) {
+            running = true
+            startLogcatMonitor()
         }
         return START_STICKY
     }
@@ -60,91 +51,47 @@ class LogMonitorService : Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("日志监控")
-            .setContentText("正在监控: $logPath")
+            .setContentText("正在抓取系统日志...")
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
             .build()
     }
 
-    private fun startMonitoring() {
-        val dir = File(logPath).parentFile
-        if (dir == null) {
-            sendDebug("错误: 无法获取父目录")
-            return
-        }
-        sendDebug("监控目录: ${dir.absolutePath}")
-        
-        fileObserver = object : FileObserver(dir.absolutePath, FileObserver.MODIFY or FileObserver.CLOSE_WRITE) {
-            override fun onEvent(event: Int, path: String?) {
-                if (path != null && path.endsWith("UE_game.log")) {
-                    sendDebug("文件变化: $path")
-                    readNewLines()
+    private fun startLogcatMonitor() {
+        logcatThread = Thread {
+            try {
+                if (!Shizuku.pingBinder()) {
+                    sendDebug("错误: Shizuku 未连接")
+                    return@Thread
                 }
+
+                sendDebug("正在启动 logcat 抓取...")
+
+                // 执行 logcat 并过滤关键词
+                val process = execShell(
+                    "logcat -v threadtime | grep -iE 'pickup|drop|item|获得|掉落|拾取|AddItem|ItemID|奖励|战利品|物品|通货|装备|传奇|稀有|史诗'"
+                ) ?: return@Thread
+
+                val reader = BufferedReader(InputStreamReader(process.inputStream))
+                var line: String?
+                var count = 0
+
+                while (running && reader.readLine().also { line = it } != null) {
+                    count++
+                    val trimmed = line!!.trim()
+                    if (trimmed.isNotEmpty()) {
+                        sendDebug("[$count] $trimmed")
+                        processLine(trimmed)
+                    }
+                }
+
+                reader.close()
+                sendDebug("logcat 读取结束，共 $count 行")
+
+            } catch (e: Exception) {
+                sendDebug("异常: ${e.javaClass.simpleName}: ${e.message}")
             }
         }
-        fileObserver.startWatching()
-        sendDebug("FileObserver 已启动")
-        
-        // 立即读取一次
-        readNewLines()
-    }
-
-    private fun readNewLines() {
-        try {
-            if (!Shizuku.pingBinder()) {
-                sendDebug("错误: Shizuku 未连接")
-                return
-            }
-
-            val totalLines = getLineCount()
-            if (totalLines == null) {
-                sendDebug("错误: 无法获取行数")
-                return
-            }
-            sendDebug("总行数: $totalLines, 上次: $lastLineCount")
-
-            if (totalLines > lastLineCount) {
-                val startLine = lastLineCount + 1
-                sendDebug("读取行 $startLine 到 $totalLines")
-                readLinesFrom(startLine)
-                lastLineCount = totalLines
-            } else {
-                sendDebug("无新内容")
-            }
-        } catch (e: Exception) {
-            sendDebug("异常: ${e.javaClass.simpleName}: ${e.message}")
-            Log.e("LogMonitor", "读取日志失败", e)
-        }
-    }
-
-    private fun getLineCount(): Long? {
-        val process = execShell("wc -l < \"$logPath\" 2>&1") ?: return null
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val output = reader.readText().trim()
-        reader.close()
-        process.waitFor()
-        
-        // wc 如果文件不存在会输出错误信息
-        if (output.isEmpty()) return 0
-        return output.toLongOrNull()
-    }
-
-    private fun readLinesFrom(startLine: Long) {
-        val process = execShell("tail -n +$startLine \"$logPath\" 2>&1") ?: return
-        val reader = BufferedReader(InputStreamReader(process.inputStream))
-        var line: String?
-        var count = 0
-        while (reader.readLine().also { line = it } != null) {
-            count++
-            val trimmed = line!!.trim()
-            if (trimmed.isNotEmpty()) {
-                // 每读一行都发出去，让用户看到原始内容
-                sendDebug("[$count] $trimmed")
-                processLine(trimmed)
-            }
-        }
-        reader.close()
-        process.waitFor()
-        sendDebug("本次读取 $count 行")
+        logcatThread?.start()
     }
 
     private fun execShell(command: String): Process? {
@@ -164,44 +111,21 @@ class LogMonitorService : Service() {
     }
 
     private fun processLine(line: String) {
-        // 尝试多种可能的掉落格式
-        val patterns = listOf(
-            Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)"),
-            Regex("获得\\s+(\\S+)\\s+x\\s*(\\d+)"),
-            Regex("pickup\\s+(\\S+)\\s+x\\s*(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("drop\\s+(\\S+)\\s+x\\s*(\\d+)", RegexOption.IGNORE_CASE),
-            Regex("(\\S+)\\s+x\\s*(\\d+)\\s*掉落"),
-            Regex("Item\\[(\\d+)\\].*Num\\[(\\d+)\\]"),
-            Regex("AddItem.*id=(\\d+).*count=(\\d+)")
-        )
-        
-        for (pattern in patterns) {
-            val match = pattern.find(line)
-            if (match != null) {
-                val itemName = match.groupValues[1]
-                val quantity = match.groupValues[2].toIntOrNull() ?: 1
-                sendEntry(itemName, quantity, line)
-                return
-            }
+        val matchResult = PATTERN.find(line)
+        if (matchResult != null) {
+            val itemName = matchResult.groupValues[1]
+            val quantity = matchResult.groupValues[2].toIntOrNull() ?: 0
+            val entry = LogEntry(
+                timestamp = System.currentTimeMillis(),
+                item = itemName,
+                quantity = quantity,
+                fireValue = 0,
+                rawLine = line
+            )
+            val intent = Intent("LOG_ENTRY")
+            intent.putExtra("entry", entry)
+            sendBroadcast(intent)
         }
-        
-        // 如果没匹配到具体格式，但行里有"掉落/获得"关键词，也显示出来
-        if (line.contains("掉落") || line.contains("获得") || line.contains("pickup") || line.contains("drop")) {
-            sendDebug("【可能相关】$line")
-        }
-    }
-
-    private fun sendEntry(item: String, quantity: Int, rawLine: String) {
-        val entry = LogEntry(
-            timestamp = System.currentTimeMillis(),
-            item = item,
-            quantity = quantity,
-            fireValue = 0,
-            rawLine = rawLine
-        )
-        val intent = Intent("LOG_ENTRY")
-        intent.putExtra("entry", entry)
-        sendBroadcast(intent)
     }
 
     private fun sendDebug(msg: String) {
@@ -220,9 +144,8 @@ class LogMonitorService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::fileObserver.isInitialized) {
-            fileObserver.stopWatching()
-        }
+        running = false
+        logcatThread?.interrupt()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
