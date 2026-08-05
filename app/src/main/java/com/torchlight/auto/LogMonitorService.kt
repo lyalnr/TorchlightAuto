@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -67,20 +66,32 @@ class LogMonitorService : Service() {
     private fun startLogcatMonitor() {
         logcatThread = Thread {
             try {
-                if (!Shizuku.pingBinder()) {
+                // 用反射检查 Shizuku 是否连接
+                val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+                val pingMethod = shizukuClass.getMethod("pingBinder")
+                val connected = pingMethod.invoke(null) as Boolean
+                if (!connected) {
                     sendDebug("错误: Shizuku 未连接，请检查 Shizuku 是否已启动并授权")
                     return@Thread
                 }
 
                 sendDebug("正在启动 logcat...")
                 
-                val process = Shizuku.newProcess(
+                // 用反射调用 Shizuku.newProcess()（private 方法）
+                val newProcessMethod = shizukuClass.getDeclaredMethod(
+                    "newProcess",
+                    Array<String>::class.java,
+                    Array<String>::class.java,
+                    String::class.java
+                )
+                newProcessMethod.isAccessible = true
+                
+                val process = newProcessMethod.invoke(
+                    null,
                     arrayOf("logcat", "-v", "threadtime"),
-                    null, null
-                ) ?: run {
-                    sendDebug("错误: 无法创建 logcat 进程")
-                    return@Thread
-                }
+                    null,
+                    null
+                ) as Process
 
                 sendDebug("logcat 已启动，等待游戏日志...")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
