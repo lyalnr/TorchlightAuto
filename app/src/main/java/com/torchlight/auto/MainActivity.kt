@@ -1,227 +1,181 @@
 package com.torchlight.auto
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
-import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import rikka.shizuku.Shizuku
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: LogAdapter
-    private lateinit var totalText: TextView
-    private lateinit var pathInput: EditText
-    private lateinit var savePathButton: Button
-    private lateinit var startStopButton: Button
-    private lateinit var floatToggleButton: Button
-    private var isMonitoring = false
-    private var isFloating = false
-    private lateinit var prefs: SharedPreferences
-
-    private val logReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            @Suppress("DEPRECATION")
-            val entry = intent?.getSerializableExtra("entry") as? LogEntry
-            entry?.let { updateUI(it) }
-        }
-    }
-
-    companion object {
-        private const val SHIZUKU_REQUEST_CODE = 101
-        private const val PREF_NAME = "log_monitor_prefs"
-        private const val KEY_LOG_PATH = "log_path"
-        private const val KEY_FLOATING = "floating_enabled"
-        private const val OVERLAY_REQUEST_CODE = 102
-    }
+    private lateinit var tvLogs: TextView
+    private lateinit var scrollView: ScrollView
+    private var logReceiver: BroadcastReceiver? = null
+    private var debugReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-
-        recyclerView = findViewById(R.id.recyclerView)
-        totalText = findViewById(R.id.totalText)
-        pathInput = findViewById(R.id.pathInput)
-        savePathButton = findViewById(R.id.savePathButton)
-        startStopButton = findViewById(R.id.startStopButton)
-        floatToggleButton = findViewById(R.id.floatToggleButton)
-
-        prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-
-        val savedPath = prefs.getString(KEY_LOG_PATH, "")
-        if (!savedPath.isNullOrEmpty()) {
-            pathInput.setText(savedPath)
-        }
-
-        adapter = LogAdapter()
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = adapter
-
-        if (Shizuku.pingBinder()) {
-            checkShizukuPermission()
-        }
-
-        savePathButton.setOnClickListener {
-            val newPath = pathInput.text.toString().trim()
-            if (newPath.isNotEmpty()) {
-                prefs.edit().putString(KEY_LOG_PATH, newPath).apply()
-                Toast.makeText(this, "路径已保存", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        startStopButton.setOnClickListener {
-            if (isMonitoring) {
-                stopMonitoring()
-            } else {
-                if (!Shizuku.pingBinder()) {
-                    Toast.makeText(this, "Shizuku 未连接，请先启动 Shizuku", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                val path = pathInput.text.toString().trim()
-                if (path.isEmpty()) {
-                    Toast.makeText(this, "请先输入日志路径", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                prefs.edit().putString(KEY_LOG_PATH, path).apply()
-                startMonitoring(path)
-            }
-        }
-
-        floatToggleButton.setOnClickListener {
-            if (isFloating) {
-                stopFloating()
-            } else {
-                if (checkOverlayPermission()) {
-                    startFloating()
-                } else {
-                    requestOverlayPermission()
-                }
-            }
-        }
-
-        isFloating = prefs.getBoolean(KEY_FLOATING, false)
-        floatToggleButton.text = if (isFloating) "关闭悬浮窗" else "开启悬浮窗"
+        setupUI()
+        requestPermissions()
+        registerReceivers()
     }
 
-    override fun onResume() {
-        super.onResume()
-        // ✅ Android 14+ 需要指定 RECEIVER_NOT_EXPORTED
-        val filter = IntentFilter("LOG_ENTRY")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            registerReceiver(logReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(logReceiver, filter)
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        try {
-            unregisterReceiver(logReceiver)
-        } catch (e: Exception) {
-            // 忽略
-        }
-    }
-
-    private fun checkOverlayPermission(): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(this)
-        } else {
-            true
+    private fun setupUI() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
         }
 
-    private fun requestOverlayPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
+        val btnStart = Button(this).apply {
+            text = "▶ 开始监控"
+            setOnClickListener { startMonitoring() }
+        }
+        root.addView(btnStart)
+
+        val btnStop = Button(this).apply {
+            text = "⏹ 停止监控"
+            setOnClickListener { stopMonitoring() }
+        }
+        root.addView(btnStop)
+
+        val tvHint = TextView(this).apply {
+            text = "📋 日志输出："
+            textSize = 14f
+            setPadding(0, 16, 0, 8)
+        }
+        root.addView(tvHint)
+
+        scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
             )
-            startActivityForResult(intent, OVERLAY_REQUEST_CODE)
         }
+        tvLogs = TextView(this).apply {
+            text = "等待启动...\n"
+            textSize = 12f
+            setTextIsSelectable(true)
+        }
+        scrollView.addView(tvLogs)
+        root.addView(scrollView)
+
+        setContentView(root)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == OVERLAY_REQUEST_CODE) {
-            if (checkOverlayPermission()) {
-                startFloating()
-            } else {
-                Toast.makeText(this, "需要悬浮窗权限才能显示", Toast.LENGTH_SHORT).show()
+    private fun requestPermissions() {
+        // Android 13+ 必须申请通知权限，否则 startForeground 会崩溃
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
             }
         }
+
+        // 悬浮窗权限
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "请授予悬浮窗权限", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")))
+        }
     }
 
-    private fun startFloating() {
-        if (!checkOverlayPermission()) {
-            requestOverlayPermission()
+    private fun registerReceivers() {
+        logReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val entry = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent?.getParcelableExtra("entry", LogEntry::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent?.getParcelableExtra("entry")
+                }
+                entry?.let { appendLog("[掉落] ${it.item} x${it.quantity}") }
+            }
+        }
+
+        debugReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val msg = intent?.getStringExtra("msg") ?: return
+                appendLog(msg)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(logReceiver, IntentFilter(LogMonitorService.ACTION_LOG_ENTRY),
+                ContextCompat.RECEIVER_NOT_EXPORTED)
+            registerReceiver(debugReceiver, IntentFilter(LogMonitorService.ACTION_DEBUG),
+                ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(logReceiver, IntentFilter(LogMonitorService.ACTION_LOG_ENTRY))
+            registerReceiver(debugReceiver, IntentFilter(LogMonitorService.ACTION_DEBUG))
+        }
+    }
+
+    private fun appendLog(msg: String) {
+        runOnUiThread {
+            tvLogs.append("$msg\n")
+            scrollView.post { scrollView.fullScroll(ScrollView.FOCUS_DOWN) }
+        }
+    }
+
+    private fun startMonitoring() {
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")))
             return
         }
-        startService(Intent(this, FloatingWindowService::class.java))
-        isFloating = true
-        prefs.edit().putBoolean(KEY_FLOATING, true).apply()
-        floatToggleButton.text = "关闭悬浮窗"
-        Toast.makeText(this, "悬浮窗已开启", Toast.LENGTH_SHORT).show()
-    }
 
-    private fun stopFloating() {
-        stopService(Intent(this, FloatingWindowService::class.java))
-        isFloating = false
-        prefs.edit().putBoolean(KEY_FLOATING, false).apply()
-        floatToggleButton.text = "开启悬浮窗"
-        Toast.makeText(this, "悬浮窗已关闭", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun checkShizukuPermission() {
-        try {
-            if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
+        // Android 13+ 检查通知权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "请先授予通知权限", Toast.LENGTH_SHORT).show()
+                ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+                return
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Shizuku 权限检查失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-    }
 
-    private fun startMonitoring(logPath: String) {
-        val intent = Intent(this, LogMonitorService::class.java)
-        intent.putExtra("log_path", logPath)
-        startService(intent)
-        isMonitoring = true
-        startStopButton.text = "停止监控"
-        Toast.makeText(this, "开始监控日志", Toast.LENGTH_SHORT).show()
+        try {
+            val intent = Intent(this, LogMonitorService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            appendLog(">>> 服务启动指令已发送")
+        } catch (e: Exception) {
+            appendLog(">>> 启动失败: ${e.message}")
+            Log.e("MainActivity", "Start service error", e)
+        }
     }
 
     private fun stopMonitoring() {
-        stopService(Intent(this, LogMonitorService::class.java))
-        isMonitoring = false
-        startStopButton.text = "开始监控"
-        Toast.makeText(this, "停止监控", Toast.LENGTH_SHORT).show()
+        try {
+            stopService(Intent(this, LogMonitorService::class.java))
+            appendLog(">>> 服务已停止")
+        } catch (e: Exception) {
+            appendLog(">>> 停止失败: ${e.message}")
+        }
     }
 
-    fun updateUI(entry: LogEntry) {
-        runOnUiThread {
-            try {
-                adapter.addEntry(entry)
-                totalText.text = "${entry.item} x${entry.quantity}"
-                FloatingWindowService.updateData(0, entry)
-                if (isFloating) {
-                    sendBroadcast(Intent("UPDATE_FLOATING"))
-                }
-            } catch (e: Exception) {
-                Toast.makeText(this, "UI更新失败: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
+    override fun onDestroy() {
+        super.onDestroy()
+        try { logReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        try { debugReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
     }
 }
