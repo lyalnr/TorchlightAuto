@@ -20,21 +20,26 @@ class LogMonitorService : Service() {
     private val logFile = File(LOG_PATH)
 
     companion object {
+        // ======== 请修改以下三个常量为你的实际值 ========
+        // 1. 日志文件完整路径
         private const val LOG_PATH = "/storage/emulated/0/Android/data/com.xindong.torchlight/files/UE4Game/UE_game/UE_game/Saved/Logs/UE_game.log"
-        private const val CHANNEL_ID = "log_monitor_channel"
-        private const val NOTIFICATION_ID = 1001
 
-        // 物品 → 火 换算表（请根据游戏实际填写）
+        // 2. 正则表达式，匹配一行日志中的物品名和数量（示例为“掉落 物品名 x数量”）
+        // 如果日志格式不同，修改此正则
+        private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
+
+        // 3. 物品 → 火 换算表（按你的游戏实际填写）
         private val ITEM_PRICE = mapOf(
             "铁矿石" to 5,
             "铜矿石" to 10,
             "金币" to 1,
             "宝石" to 100
-            // 添加更多
+            // 添加更多...
         )
+        // ==============================================
 
-        // 正则匹配 “掉落 物品名 x数量” 格式
-        private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x(\\d+)")
+        private const val CHANNEL_ID = "log_monitor_channel"
+        private const val NOTIFICATION_ID = 1001
     }
 
     override fun onCreate() {
