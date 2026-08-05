@@ -34,12 +34,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
 
     companion object {
-        const val PERMISSION_REQUEST_CODE = 100
-        const val SHIZUKU_REQUEST_CODE = 101
-        const val PREF_NAME = "log_monitor_prefs"
-        const val KEY_LOG_PATH = "log_path"
-        const val KEY_FLOATING = "floating_enabled"
-        const val OVERLAY_REQUEST_CODE = 102
+        private const val PERMISSION_REQUEST_CODE = 100
+        private const val SHIZUKU_REQUEST_CODE = 101
+        private const val PREF_NAME = "log_monitor_prefs"
+        private const val KEY_LOG_PATH = "log_path"
+        private const val KEY_FLOATING = "floating_enabled"
+        private const val OVERLAY_REQUEST_CODE = 102
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

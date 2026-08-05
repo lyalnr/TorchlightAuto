@@ -89,7 +89,6 @@ class FloatingWindowService : Service() {
         windowManager.addView(floatingView, params)
         updateDisplay()
 
-        // 注册广播接收器
         val filter = IntentFilter("UPDATE_FLOATING")
         registerReceiver(updateReceiver, filter)
     }
