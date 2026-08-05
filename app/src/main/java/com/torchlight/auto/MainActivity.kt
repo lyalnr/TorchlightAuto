@@ -105,13 +105,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 恢复悬浮窗状态
         isFloating = prefs.getBoolean(KEY_FLOATING, false)
-        if (isFloating) {
-            floatToggleButton.text = "关闭悬浮窗"
-        } else {
-            floatToggleButton.text = "开启悬浮窗"
-        }
+        floatToggleButton.text = if (isFloating) "关闭悬浮窗" else "开启悬浮窗"
     }
 
     private fun checkOverlayPermission(): Boolean {
@@ -192,15 +187,9 @@ class MainActivity : AppCompatActivity() {
             adapter.addEntry(entry)
             val total = adapter.getTotalFire()
             totalText.text = "总火值: $total"
-            // 更新悬浮窗数据
             FloatingWindowService.updateData(total, entry)
             if (isFloating) {
-                // 手动刷新悬浮窗显示（由于service无法直接更新UI，我们通过广播或静态方法）
-                // 这里简单处理：每次更新时重新创建悬浮窗？更好的方法是用广播，简化用静态变量。
-                // 在 FloatingWindowService 中我们使用了静态变量，需要通知刷新
-                // 调用 service 的 updateDisplay 方法，因为 service 实例未知，我们用广播。
-                val broadcast = Intent("UPDATE_FLOATING")
-                sendBroadcast(broadcast)
+                sendBroadcast(Intent("UPDATE_FLOATING"))
             }
         }
     }

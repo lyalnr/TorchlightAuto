@@ -10,34 +10,25 @@ import android.os.FileObserver
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import rikka.shizuku.Shizuku
+import java.io.BufferedReader
 import java.io.File
-import java.io.RandomAccessFile
+import java.io.InputStreamReader
 
 class LogMonitorService : Service() {
 
     private lateinit var fileObserver: FileObserver
     private var lastPos = 0L
-    private val logFile = File(LOG_PATH)
+    private var logPath = ""
 
     companion object {
-        // ======== 请修改以下三个常量为你的实际值 ========
-        // 1. 日志文件完整路径
-        private const val LOG_PATH = "/storage/emulated/0/Android/data/com.xindong.torchlight/files/UE4Game/UE_game/UE_game/Saved/Logs/UE_game.log"
-
-        // 2. 正则表达式，匹配一行日志中的物品名和数量（示例为“掉落 物品名 x数量”）
-        // 如果日志格式不同，修改此正则
         private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
-
-        // 3. 物品 → 火 换算表（按你的游戏实际填写）
         private val ITEM_PRICE = mapOf(
             "铁矿石" to 5,
             "铜矿石" to 10,
             "金币" to 1,
             "宝石" to 100
-            // 添加更多...
         )
-        // ==============================================
-
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
     }
@@ -46,8 +37,19 @@ class LogMonitorService : Service() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
-        lastPos = if (logFile.exists()) logFile.length() else 0
-        startMonitoring()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.let {
+            logPath = it.getStringExtra("log_path") ?: ""
+        }
+        if (logPath.isNotEmpty()) {
+            startMonitoring()
+        } else {
+            Log.e("LogMonitor", "未收到日志路径，停止服务")
+            stopSelf()
+        }
+        return START_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -71,7 +73,7 @@ class LogMonitorService : Service() {
     }
 
     private fun startMonitoring() {
-        val dir = logFile.parentFile ?: return
+        val dir = File(logPath).parentFile ?: return
         fileObserver = object : FileObserver(dir.absolutePath, FileObserver.MODIFY or FileObserver.CLOSE_WRITE) {
             override fun onEvent(event: Int, path: String?) {
                 if (path != null && path.endsWith("UE_game.log")) {
@@ -84,19 +86,23 @@ class LogMonitorService : Service() {
     }
 
     private fun readNewLines() {
-        if (!logFile.exists()) return
         try {
-            RandomAccessFile(logFile, "r").use { raf ->
-                raf.seek(lastPos)
-                var line: String?
-                while (raf.filePointer < raf.length()) {
-                    line = raf.readLine()
-                    if (line != null) {
-                        processLine(line)
-                    }
-                }
-                lastPos = raf.filePointer
+            if (!Shizuku.pingBinder()) {
+                Log.e("LogMonitor", "Shizuku 未连接")
+                return
             }
+            val process = Shizuku.newProcess(arrayOf("cat", logPath), null, null)
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            var line: String?
+            var currentPos = 0L
+            while (reader.readLine().also { line = it } != null) {
+                currentPos++
+                if (currentPos > lastPos) {
+                    processLine(line!!)
+                }
+            }
+            lastPos = currentPos
+            process.waitFor()
         } catch (e: Exception) {
             Log.e("LogMonitor", "读取日志失败", e)
         }
