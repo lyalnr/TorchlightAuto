@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#FF03DAC5</color>
+    <color name="background">#FF121212</color>
+    <color name="error">#FFF44336</color>
+    <color name="log_error">#FFF44336</color>
+    <color name="log_gold">#FFFFD700</color>
+    <color name="log_info">#FF2196F3</color>
+    <color name="log_item">#FF4CAF50</color>
+    <color name="primary">#FF6200EE</color>
+    <color name="primary_dark">#FF3700B3</color>
+    <color name="success">#FF4CAF50</color>
+    <color name="surface">#FF1E1E1E</color>
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#FFB0B0B0</color>
+    <color name="warning">#FFFF9800</color>
+    <string name="accessibility_desc">火炬之光无限自动化辅助服务</string>
+    <string name="app_name">火炬助手</string>
+    <style name="Theme.TorchlightAuto" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+</resources>

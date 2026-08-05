@@ -1,0 +1,23 @@
+R_DEF: Internal format may change without notice
+local
+color accent
+color background
+color error
+color log_error
+color log_gold
+color log_info
+color log_item
+color primary
+color primary_dark
+color success
+color surface
+color text_primary
+color text_secondary
+color warning
+id sv_log
+id tv_log
+id tv_stats
+layout activity_main
+string accessibility_desc
+string app_name
+style Theme.TorchlightAuto
