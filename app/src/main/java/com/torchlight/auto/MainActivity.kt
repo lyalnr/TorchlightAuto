@@ -33,6 +33,11 @@ class MainActivity : AppCompatActivity() {
     private var floatView: View? = null
     private var floatTv: TextView? = null
 
+    companion object {
+        private const val REQ_POST_NOTIFICATION = 100
+        private const val REQ_SHIZUKU = 200
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupUI()
@@ -89,7 +94,7 @@ class MainActivity : AppCompatActivity() {
                 != PackageManager.PERMISSION_GRANTED) {
                 appendLog("⚠️ 申请通知权限...")
                 ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_POST_NOTIFICATION)
             } else {
                 appendLog("✅ 通知权限已授权")
             }
@@ -113,43 +118,72 @@ class MainActivity : AppCompatActivity() {
             val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
             val pingMethod = shizukuClass.getMethod("pingBinder")
             val connected = pingMethod.invoke(null) as? Boolean ?: false
-            
+
             if (!connected) {
                 appendLog("❌ Shizuku 未启动")
                 appendLog("👉 请先打开 Shizuku 应用并启动服务")
                 return
             }
 
-            // 检查是否授权了本应用
-            val uidMethod = shizukuClass.getMethod("getUid")
-            val uid = uidMethod.invoke(null) as? Int ?: -1
-            if (uid <= 0) {
-                appendLog("❌ Shizuku 未授权「日志监控」")
-                appendLog("👉 正在跳转到 Shizuku 授权页面...")
-                
-                // 自动跳转到 Shizuku 应用管理页面
-                try {
-                    val intent = Intent().apply {
-                        setClassName("moe.shizuku.privileged.api", 
-                            "moe.shizuku.manager.MainActivity")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    startActivity(intent)
-                    Toast.makeText(this, 
-                        "请在 Shizuku 里找到「日志监控」并打开开关", 
-                        Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    // 如果跳转失败，提示用户手动打开
-                    appendLog("⚠️ 无法自动跳转，请手动打开 Shizuku")
-                    appendLog("   路径：Shizuku → 应用管理 → 日志监控 → 允许")
-                }
-                return
+            // 检查是否已授权
+            val checkMethod = shizukuClass.getMethod("checkSelfPermission")
+            val granted = checkMethod.invoke(null) as? Int ?: PackageManager.PERMISSION_DENIED
+
+            if (granted == PackageManager.PERMISSION_GRANTED) {
+                appendLog("✅ Shizuku 已连接且已授权")
+            } else {
+                appendLog("❌ Shizuku 未授权本应用")
+                appendLog("👉 正在弹窗申请 Shizuku 授权...")
+                requestShizukuPermission()
             }
-            
-            appendLog("✅ Shizuku 已连接且已授权")
         } catch (e: Exception) {
             appendLog("❌ Shizuku 检查失败: ${e.message}")
-            appendLog("👉 请确认已安装 Shizuku")
+        }
+    }
+
+    private fun requestShizukuPermission() {
+        try {
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val reqMethod = shizukuClass.getMethod("requestPermission", Int::class.java)
+            reqMethod.invoke(null, REQ_SHIZUKU)
+            appendLog("📡 Shizuku 授权弹窗已发起")
+            Toast.makeText(this, "请点击「始终允许」", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            appendLog("⚠️ 无法自动弹窗: ${e.message}")
+            appendLog("👉 请手动去 Shizuku → 应用管理 → 日志监控 → 允许")
+        }
+    }
+
+    // 监听 Shizuku 授权结果
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        // 系统通知权限回调
+        if (requestCode == REQ_POST_NOTIFICATION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                appendLog("✅ 通知权限已授予")
+            } else {
+                appendLog("❌ 通知权限被拒绝")
+            }
+            return
+        }
+
+        // Shizuku 权限回调（Shizuku v13+ 也走这里）
+        if (requestCode == REQ_SHIZUKU) {
+            try {
+                val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+                val checkMethod = shizukuClass.getMethod("checkSelfPermission")
+                val granted = checkMethod.invoke(null) as? Int ?: PackageManager.PERMISSION_DENIED
+
+                if (granted == PackageManager.PERMISSION_GRANTED) {
+                    appendLog("✅ Shizuku 授权成功！")
+                } else {
+                    appendLog("❌ Shizuku 授权被拒绝")
+                    appendLog("👉 请去 Shizuku → 应用管理 → 日志监控 → 允许")
+                }
+            } catch (e: Exception) {
+                appendLog("⚠️ 授权结果检查失败: ${e.message}")
+            }
         }
     }
 
@@ -210,7 +244,7 @@ class MainActivity : AppCompatActivity() {
                     @Suppress("DEPRECATION")
                     intent?.getParcelableExtra("entry")
                 }
-                entry?.let { 
+                entry?.let {
                     val text = "[掉落] ${it.item} x${it.quantity}"
                     appendLog(text)
                     updateFloatWindow(text)
@@ -248,20 +282,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMonitoring() {
-        // 再次检查 Shizuku 授权
+        // 检查 Shizuku 授权
         try {
             val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
             val pingMethod = shizukuClass.getMethod("pingBinder")
             val connected = pingMethod.invoke(null) as? Boolean ?: false
             if (!connected) {
-                appendLog("❌ Shizuku 未启动，无法监控")
+                appendLog("❌ Shizuku 未启动")
                 return
             }
-            val uidMethod = shizukuClass.getMethod("getUid")
-            val uid = uidMethod.invoke(null) as? Int ?: -1
-            if (uid <= 0) {
-                appendLog("❌ Shizuku 未授权本应用")
-                appendLog("👉 请去 Shizuku → 应用管理 → 日志监控 → 允许")
+            val checkMethod = shizukuClass.getMethod("checkSelfPermission")
+            val granted = checkMethod.invoke(null) as? Int ?: PackageManager.PERMISSION_DENIED
+            if (granted != PackageManager.PERMISSION_GRANTED) {
+                appendLog("❌ Shizuku 未授权，正在弹窗申请...")
+                requestShizukuPermission()
                 return
             }
         } catch (e: Exception) {
@@ -274,7 +308,7 @@ class MainActivity : AppCompatActivity() {
                 != PackageManager.PERMISSION_GRANTED) {
                 appendLog("❌ 请先授予通知权限")
                 ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_POST_NOTIFICATION)
                 return
             }
         }
@@ -301,17 +335,6 @@ class MainActivity : AppCompatActivity() {
             hideFloatWindow()
         } catch (e: Exception) {
             appendLog(">>> 停止失败: ${e.message}")
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                appendLog("✅ 通知权限已授予")
-            } else {
-                appendLog("❌ 通知权限被拒绝")
-            }
         }
     }
 
