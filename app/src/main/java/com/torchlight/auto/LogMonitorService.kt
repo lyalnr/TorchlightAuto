@@ -10,17 +10,11 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.io.BufferedReader
-import java.io.File
-import java.io.FileWriter
 import java.io.InputStreamReader
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class LogMonitorService : Service() {
     private var logcatThread: Thread? = null
     @Volatile private var running = false
-    private val logFile = File("/sdcard/Download/torchlight_service.log")
 
     companion object {
         private val DROP_PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
@@ -36,44 +30,25 @@ class LogMonitorService : Service() {
         )
     }
 
-    private fun writeFile(msg: String) {
-        try {
-            val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-            FileWriter(logFile, true).use { it.appendLine("[$time] $msg") }
-        } catch (e: Exception) {
-            Log.e("LogMonitor", "File log failed: ${e.message}")
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
-        writeFile("=== onCreate 开始 ===")
         try {
             createNotificationChannel()
-            writeFile("通知渠道创建完成")
-            
-            val notification = createNotification("正在初始化...")
-            writeFile("通知创建完成")
-            
-            startForeground(NOTIFICATION_ID, notification)
-            writeFile("✅ startForeground 成功")
-            
+            startForeground(NOTIFICATION_ID, createNotification("正在初始化..."))
             sendDebug("✅ 前台服务已启动")
         } catch (e: Exception) {
-            writeFile("💥 onCreate 异常: ${e.javaClass.simpleName}: ${e.message}")
-            sendDebug("💥 前台服务启动失败: ${e.javaClass.simpleName}: ${e.message}")
+            sendDebug("💥 前台服务启动失败: ${e.message}")
+            Log.e("LogMonitor", "Foreground service failed", e)
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        writeFile("📡 onStartCommand 被调用")
-        sendDebug("📡 onStartCommand 被调用")
-        
+        sendDebug("📡 onStartCommand")
         if (!running) {
             running = true
             Thread {
-                Thread.sleep(300)
+                Thread.sleep(200)
                 startLogcatMonitor()
             }.start()
         }
@@ -90,14 +65,14 @@ class LogMonitorService : Service() {
                 )
                 getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
             } catch (e: Exception) {
-                writeFile("通知渠道创建失败: ${e.message}")
+                Log.e("LogMonitor", "Channel failed", e)
             }
         }
     }
 
     private fun createNotification(text: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("火炬之光掉落监控")
+            .setContentTitle("日志监控")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
             .setOngoing(true)
@@ -107,37 +82,44 @@ class LogMonitorService : Service() {
     private fun startLogcatMonitor() {
         logcatThread = Thread {
             try {
-                writeFile("🔍 检查 Shizuku 连接...")
-                sendDebug("🔍 检查 Shizuku 连接...")
+                sendDebug("🔍 检查 Shizuku...")
                 
                 val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
                 val pingMethod = shizukuClass.getMethod("pingBinder")
                 val connected = pingMethod.invoke(null) as? Boolean ?: false
                 
-                writeFile("Shizuku pingBinder = $connected")
-                
                 if (!connected) {
-                    sendDebug("❌ Shizuku 未连接！")
-                    sendDebug("👉 打开 Shizuku → 启动服务 → 应用管理 → 找到「火炬助手」→ 允许")
+                    sendDebug("❌ Shizuku 未连接")
+                    sendDebug("👉 去 Shizuku → 应用管理 → 找到「日志监控」→ 允许")
                     running = false
                     return@Thread
                 }
 
                 sendDebug("✅ Shizuku 已连接")
-                sendDebug("🚀 正在启动 logcat...")
+                
+                // 检查 Shizuku 是否授权了本应用
+                val uidMethod = shizukuClass.getMethod("getUid")
+                val uid = uidMethod.invoke(null) as? Int ?: -1
+                if (uid <= 0) {
+                    sendDebug("❌ Shizuku 未授权本应用")
+                    sendDebug("👉 去 Shizuku → 应用管理 → 日志监控 → 打开开关")
+                    running = false
+                    return@Thread
+                }
+                sendDebug("✅ Shizuku 已授权 (uid=$uid)")
+
+                sendDebug("🚀 启动 logcat...")
                 
                 val method = shizukuClass.declaredMethods.find { 
                     it.name == "newProcess" && it.parameterCount == 3 
                 }
                 if (method == null) {
-                    sendDebug("❌ 找不到 Shizuku.newProcess 方法")
-                    writeFile("找不到 newProcess 方法")
+                    sendDebug("❌ 找不到 newProcess")
                     running = false
                     return@Thread
                 }
                 method.isAccessible = true
                 
-                writeFile("调用 newProcess...")
                 val process = method.invoke(
                     null,
                     arrayOf("logcat", "-v", "threadtime"),
@@ -146,15 +128,12 @@ class LogMonitorService : Service() {
                 ) as? Process
 
                 if (process == null) {
-                    sendDebug("❌ 无法创建 logcat 进程（Shizuku 可能未授权本应用）")
-                    sendDebug("👉 去 Shizuku → 应用管理 → 找到「火炬助手」→ 打开开关")
-                    writeFile("newProcess 返回 null")
+                    sendDebug("❌ 无法创建进程（Shizuku 未授权？）")
                     running = false
                     return@Thread
                 }
 
-                writeFile("logcat 进程创建成功")
-                sendDebug("📥 logcat 已启动，去游戏里捡东西试试...")
+                sendDebug("📥 logcat 启动成功，去游戏里捡东西...")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
                 var count = 0
@@ -180,14 +159,11 @@ class LogMonitorService : Service() {
                 }
 
                 try { reader.close() } catch (_: Exception) {}
-                sendDebug("🏁 监控结束，共处理 $count 行")
-                writeFile("监控结束，共 $count 行")
+                sendDebug("🏁 结束，共 $count 行")
 
             } catch (e: Exception) {
-                val err = "${e.javaClass.simpleName}: ${e.message}"
-                sendDebug("💥 严重异常: $err")
-                writeFile("严重异常: $err")
-                Log.e("LogMonitor", "Service crash", e)
+                sendDebug("💥 异常: ${e.javaClass.simpleName}: ${e.message}")
+                Log.e("LogMonitor", "Crash", e)
             } finally {
                 running = false
             }
@@ -237,7 +213,6 @@ class LogMonitorService : Service() {
 
     override fun onDestroy() {
         running = false
-        writeFile("=== onDestroy ===")
         try {
             logcatThread?.interrupt()
             logcatThread?.join(500)

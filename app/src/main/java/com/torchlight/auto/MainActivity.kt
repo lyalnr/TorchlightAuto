@@ -6,11 +6,16 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -25,12 +30,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scrollView: ScrollView
     private var logReceiver: BroadcastReceiver? = null
     private var debugReceiver: BroadcastReceiver? = null
+    private var floatView: View? = null
+    private var floatTv: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupUI()
         registerReceivers()
-        checkAllPermissions()
+        checkPermissions()
     }
 
     private fun setupUI() {
@@ -75,12 +82,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun checkAllPermissions() {
-        // 1. 通知权限（Android 13+ 必需，否则 startForeground 崩溃）
+    private fun checkPermissions() {
+        // 通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-                appendLog("⚠️ 需要通知权限，正在申请...")
+                appendLog("⚠️ 申请通知权限...")
                 ActivityCompat.requestPermissions(this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
             } else {
@@ -88,9 +95,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. 悬浮窗权限
+        // 悬浮窗权限
         if (!Settings.canDrawOverlays(this)) {
-            appendLog("⚠️ 需要悬浮窗权限，请授权")
+            appendLog("⚠️ 需要悬浮窗权限")
             Toast.makeText(this, "请授予悬浮窗权限", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")))
@@ -98,26 +105,78 @@ class MainActivity : AppCompatActivity() {
             appendLog("✅ 悬浮窗权限已授权")
         }
 
-        // 3. Shizuku 状态检查
-        checkShizukuStatus()
+        checkShizuku()
     }
 
-    private fun checkShizukuStatus() {
+    private fun checkShizuku() {
         try {
             val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
             val pingMethod = shizukuClass.getMethod("pingBinder")
             val connected = pingMethod.invoke(null) as? Boolean ?: false
             
             if (connected) {
-                appendLog("✅ Shizuku 已连接")
+                val uidMethod = shizukuClass.getMethod("getUid")
+                val uid = uidMethod.invoke(null) as? Int ?: -1
+                if (uid > 0) {
+                    appendLog("✅ Shizuku 已连接且已授权")
+                } else {
+                    appendLog("⚠️ Shizuku 已连接但未授权本应用")
+                    appendLog("👉 Shizuku → 应用管理 → 日志监控 → 允许")
+                }
             } else {
-                appendLog("❌ Shizuku 未连接！")
-                appendLog("👉 步骤：打开 Shizuku → 启动 → 配对/授权 → 允许本应用")
-                appendLog("   然后点击「开始监控」")
+                appendLog("❌ Shizuku 未连接")
+                appendLog("👉 打开 Shizuku → 启动服务")
             }
         } catch (e: Exception) {
             appendLog("❌ Shizuku 检查失败: ${e.message}")
-            appendLog("👉 请确认已安装 Shizuku 应用")
+        }
+    }
+
+    private fun showFloatWindow() {
+        if (!Settings.canDrawOverlays(this)) return
+        if (floatView != null) return
+
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            WindowManager.LayoutParams.TYPE_PHONE
+
+        val params = WindowManager.LayoutParams(
+            600, 400,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 50
+            y = 200
+        }
+
+        floatView = LayoutInflater.from(this).inflate(android.R.layout.simple_list_item_1, null)
+        floatTv = floatView?.findViewById(android.R.id.text1)
+        floatTv?.text = "日志监控悬浮窗\n等待日志..."
+        floatTv?.setBackgroundColor(0xCC000000.toInt())
+        floatTv?.setTextColor(0xFFFFFFFF.toInt())
+        floatTv?.setPadding(16, 16, 16, 16)
+
+        wm.addView(floatView, params)
+        appendLog("🪟 悬浮窗已显示")
+    }
+
+    private fun hideFloatWindow() {
+        floatView?.let {
+            try {
+                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                wm.removeView(it)
+            } catch (_: Exception) {}
+            floatView = null
+        }
+    }
+
+    private fun updateFloatWindow(msg: String) {
+        runOnUiThread {
+            floatTv?.text = "日志监控\n$msg"
         }
     }
 
@@ -130,7 +189,11 @@ class MainActivity : AppCompatActivity() {
                     @Suppress("DEPRECATION")
                     intent?.getParcelableExtra("entry")
                 }
-                entry?.let { appendLog("[掉落] ${it.item} x${it.quantity}") }
+                entry?.let { 
+                    val text = "[掉落] ${it.item} x${it.quantity}"
+                    appendLog(text)
+                    updateFloatWindow(text)
+                }
             }
         }
 
@@ -138,6 +201,9 @@ class MainActivity : AppCompatActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val msg = intent?.getStringExtra("msg") ?: return
                 appendLog(msg)
+                if (msg.contains("掉落") || msg.contains("[")) {
+                    updateFloatWindow(msg)
+                }
             }
         }
 
@@ -161,30 +227,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMonitoring() {
-        // 再次检查通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-                appendLog("❌ 请先授予通知权限！")
+                appendLog("❌ 请先授予通知权限")
                 ActivityCompat.requestPermissions(this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
                 return
             }
-        }
-
-        // 检查 Shizuku
-        try {
-            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
-            val pingMethod = shizukuClass.getMethod("pingBinder")
-            val connected = pingMethod.invoke(null) as? Boolean ?: false
-            if (!connected) {
-                appendLog("❌ Shizuku 未连接，无法启动监控")
-                appendLog("👉 请先去 Shizuku 应用里授权本软件")
-                return
-            }
-        } catch (e: Exception) {
-            appendLog("❌ Shizuku 检查失败: ${e.message}")
-            return
         }
 
         try {
@@ -195,9 +245,10 @@ class MainActivity : AppCompatActivity() {
                 startService(intent)
             }
             appendLog(">>> 服务启动指令已发送")
+            showFloatWindow()
         } catch (e: Exception) {
             appendLog(">>> 💥 启动失败: ${e.message}")
-            Log.e("MainActivity", "Start service error", e)
+            Log.e("MainActivity", "Start error", e)
         }
     }
 
@@ -205,6 +256,7 @@ class MainActivity : AppCompatActivity() {
         try {
             stopService(Intent(this, LogMonitorService::class.java))
             appendLog(">>> 服务已停止")
+            hideFloatWindow()
         } catch (e: Exception) {
             appendLog(">>> 停止失败: ${e.message}")
         }
@@ -216,14 +268,14 @@ class MainActivity : AppCompatActivity() {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 appendLog("✅ 通知权限已授予")
             } else {
-                appendLog("❌ 通知权限被拒绝！没有此权限服务会崩溃")
-                appendLog("👉 请去设置 → 应用 → 火炬助手 → 通知 → 允许")
+                appendLog("❌ 通知权限被拒绝，服务可能会崩溃")
             }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        hideFloatWindow()
         try { logReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
         try { debugReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
     }
