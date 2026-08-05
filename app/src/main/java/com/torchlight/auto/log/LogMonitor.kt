@@ -38,7 +38,7 @@ class LogMonitor(private val logPath: String) {
                 scope.launch { readNew() }
             }
         }
-        observer?.start()
+        observer?.startWatching()
         scope.launch { readNew() }
     }
 
@@ -81,5 +81,5 @@ class LogMonitor(private val logPath: String) {
     fun getStats() = mapOf("totalItems" to allItems.size, "totalGold" to totalGold,
         "legendary" to allItems.count { it.quality == "传奇" }, "rare" to allItems.count { it.quality == "稀有" })
 
-    fun stop() { observer?.stop(); scope.cancel() }
+    fun stop() { observer?.stopWatching(); scope.cancel() }
 }
