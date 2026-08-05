@@ -13,21 +13,26 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 class LogMonitorService : Service() {
-    private var logcatThread: Thread? = null
+    private var monitorThread: Thread? = null
     @Volatile private var running = false
 
     companion object {
-        private val DROP_PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
+        // 火炬之光可能的日志路径（不同版本可能不同）
+        private val LOG_PATHS = listOf(
+            "/storage/emulated/0/Android/data/com.xindong.torchlight/files/UE4Game/UE_game/UE_game/Saved/Logs/UE_game.log",
+            "/storage/emulated/0/Android/data/com.xindong.torchlight/files/UE4Game/TorchlightMobile/TorchlightMobile/Saved/Logs/TorchlightMobile.log",
+            "/storage/emulated/0/Android/data/com.xd.torchlight/files/UE4Game/TorchlightMobile/TorchlightMobile/Saved/Logs/TorchlightMobile.log"
+        )
+        private val DROP_PATTERNS = listOf(
+            Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)"),
+            Regex("Pickup\\s+(\\S+)\\s+x\\s*(\\d+)"),
+            Regex("AddItem.*?(\\S+).*?Count[=:]\\s*(\\d+)"),
+            Regex("获得.*?(\\S+).*?x\\s*(\\d+)")
+        )
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_LOG_ENTRY = "com.torchlight.auto.LOG_ENTRY"
         const val ACTION_DEBUG = "com.torchlight.auto.DEBUG"
-        
-        private val KEYWORDS = listOf(
-            "pickup", "drop", "item", "获得", "掉落", "拾取",
-            "additem", "itemid", "奖励", "战利品", "物品",
-            "通货", "装备", "传奇", "稀有", "史诗"
-        )
     }
 
     override fun onCreate() {
@@ -38,7 +43,6 @@ class LogMonitorService : Service() {
             sendDebug("✅ 前台服务已启动")
         } catch (e: Exception) {
             sendDebug("💥 前台服务启动失败: ${e.message}")
-            Log.e("LogMonitor", "Foreground service failed", e)
             stopSelf()
         }
     }
@@ -48,8 +52,8 @@ class LogMonitorService : Service() {
         if (!running) {
             running = true
             Thread {
-                Thread.sleep(200)
-                startLogcatMonitor()
+                Thread.sleep(300)
+                startFileMonitor()
             }.start()
         }
         return START_STICKY
@@ -79,87 +83,49 @@ class LogMonitorService : Service() {
             .build()
     }
 
-    private fun startLogcatMonitor() {
-        logcatThread = Thread {
+    private fun startFileMonitor() {
+        monitorThread = Thread {
             try {
                 sendDebug("🔍 检查 Shizuku...")
-                
                 val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
                 val pingMethod = shizukuClass.getMethod("pingBinder")
                 val connected = pingMethod.invoke(null) as? Boolean ?: false
-                
                 if (!connected) {
                     sendDebug("❌ Shizuku 未连接")
-                    sendDebug("👉 去 Shizuku → 应用管理 → 找到「日志监控」→ 允许")
                     running = false
                     return@Thread
                 }
 
-                sendDebug("✅ Shizuku 已连接")
-                
-                // 检查 Shizuku 是否授权了本应用
-                val uidMethod = shizukuClass.getMethod("getUid")
-                val uid = uidMethod.invoke(null) as? Int ?: -1
-                if (uid <= 0) {
+                val checkMethod = shizukuClass.getMethod("checkSelfPermission")
+                val granted = checkMethod.invoke(null) as? Int ?: -1
+                if (granted != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     sendDebug("❌ Shizuku 未授权本应用")
-                    sendDebug("👉 去 Shizuku → 应用管理 → 日志监控 → 打开开关")
                     running = false
                     return@Thread
                 }
-                sendDebug("✅ Shizuku 已授权 (uid=$uid)")
+                sendDebug("✅ Shizuku 已授权")
 
-                sendDebug("🚀 启动 logcat...")
-                
-                val method = shizukuClass.declaredMethods.find { 
-                    it.name == "newProcess" && it.parameterCount == 3 
-                }
-                if (method == null) {
-                    sendDebug("❌ 找不到 newProcess")
-                    running = false
-                    return@Thread
-                }
-                method.isAccessible = true
-                
-                val process = method.invoke(
-                    null,
-                    arrayOf("logcat", "-v", "threadtime"),
-                    null,
-                    null
-                ) as? Process
-
-                if (process == null) {
-                    sendDebug("❌ 无法创建进程（Shizuku 未授权？）")
-                    running = false
-                    return@Thread
-                }
-
-                sendDebug("📥 logcat 启动成功，去游戏里捡东西...")
-                val reader = BufferedReader(InputStreamReader(process.inputStream))
-                var line: String?
-                var count = 0
-
-                while (running) {
-                    line = try {
-                        reader.readLine()
-                    } catch (e: Exception) {
-                        sendDebug("读取中断: ${e.message}")
+                // 找到可用的日志文件
+                var validPath: String? = null
+                for (path in LOG_PATHS) {
+                    sendDebug("🔍 检查路径: $path")
+                    if (fileExists(shizukuClass, path)) {
+                        validPath = path
+                        sendDebug("✅ 找到日志文件: $path")
                         break
                     }
-                    
-                    if (line == null) break
-                    
-                    count++
-                    val trimmed = line.trim()
-                    if (trimmed.isEmpty()) continue
-
-                    if (containsKeyword(trimmed)) {
-                        sendDebug("[$count] $trimmed")
-                        processLine(trimmed)
-                    }
                 }
 
-                try { reader.close() } catch (_: Exception) {}
-                sendDebug("🏁 结束，共 $count 行")
+                if (validPath == null) {
+                    sendDebug("❌ 找不到游戏日志文件")
+                    sendDebug("👉 可能路径变了，或游戏未生成日志")
+                    sendDebug("👉 尝试用 logcat 方案...")
+                    startLogcatFallback(shizukuClass)
+                    return@Thread
+                }
+
+                sendDebug("🚀 开始监听日志文件...")
+                readLogFile(shizukuClass, validPath)
 
             } catch (e: Exception) {
                 sendDebug("💥 异常: ${e.javaClass.simpleName}: ${e.message}")
@@ -168,16 +134,136 @@ class LogMonitorService : Service() {
                 running = false
             }
         }
-        logcatThread?.start()
+        monitorThread?.start()
+    }
+
+    private fun fileExists(shizukuClass: Class<*>, path: String): Boolean {
+        return try {
+            val method = shizukuClass.declaredMethods.find {
+                it.name == "newProcess" && it.parameterCount == 3
+            }
+            method?.isAccessible = true
+            val process = method?.invoke(
+                null,
+                arrayOf("sh", "-c", "test -f \"$path\" && echo YES || echo NO"),
+                null, null
+            ) as? Process ?: return false
+
+            val result = BufferedReader(InputStreamReader(process.inputStream)).readLine()?.trim()
+            process.waitFor()
+            result == "YES"
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun readLogFile(shizukuClass: Class<*>, path: String) {
+        try {
+            val method = shizukuClass.declaredMethods.find {
+                it.name == "newProcess" && it.parameterCount == 3
+            }
+            method?.isAccessible = true
+
+            // 先获取文件当前行数，避免输出历史内容太多
+            sendDebug("📖 正在打开日志...")
+
+            val process = method?.invoke(
+                null,
+                arrayOf("sh", "-c", "tail -f -n 0 \"$path\""),
+                null, null
+            ) as? Process
+
+            if (process == null) {
+                sendDebug("❌ 无法读取日志文件")
+                return
+            }
+
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            var line: String?
+            var count = 0
+
+            sendDebug("📥 正在实时监控，去游戏里捡东西...")
+
+            while (running) {
+                line = try {
+                    reader.readLine()
+                } catch (e: Exception) {
+                    sendDebug("读取中断: ${e.message}")
+                    break
+                }
+
+                if (line == null) {
+                    Thread.sleep(500)
+                    continue
+                }
+
+                count++
+                val trimmed = line.trim()
+                if (trimmed.isEmpty()) continue
+
+                // 显示所有包含关键词的行
+                if (containsKeyword(trimmed)) {
+                    sendDebug("[$count] $trimmed")
+                    processLine(trimmed)
+                }
+            }
+
+            try { reader.close() } catch (_: Exception) {}
+            sendDebug("🏁 监控结束，共 $count 行")
+
+        } catch (e: Exception) {
+            sendDebug("💥 读文件异常: ${e.message}")
+        }
+    }
+
+    private fun startLogcatFallback(shizukuClass: Class<*>) {
+        try {
+            val method = shizukuClass.declaredMethods.find {
+                it.name == "newProcess" && it.parameterCount == 3
+            }
+            method?.isAccessible = true
+
+            val process = method?.invoke(
+                null,
+                arrayOf("logcat", "-v", "threadtime"),
+                null, null
+            ) as? Process
+
+            if (process == null) {
+                sendDebug("❌ logcat 也失败了")
+                return
+            }
+
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            var line: String?
+            var count = 0
+
+            sendDebug("📥 logcat 备用方案启动...")
+
+            while (running) {
+                line = reader.readLine()
+                if (line == null) break
+                count++
+                if (containsKeyword(line)) {
+                    sendDebug("[logcat-$count] $line")
+                    processLine(line)
+                }
+            }
+        } catch (e: Exception) {
+            sendDebug("💥 logcat 备用也失败: ${e.message}")
+        }
     }
 
     private fun containsKeyword(line: String): Boolean {
-        return KEYWORDS.any { line.contains(it, ignoreCase = true) }
+        val keywords = listOf("pickup", "drop", "item", "获得", "掉落", "拾取",
+            "additem", "itemid", "奖励", "战利品", "物品", "通货", "装备",
+            "传奇", "稀有", "史诗", "legendary", "rare", "currency")
+        return keywords.any { line.contains(it, ignoreCase = true) }
     }
 
     private fun processLine(line: String) {
-        try {
-            val match = DROP_PATTERN.find(line)
+        for (pattern in DROP_PATTERNS) {
+            val match = pattern.find(line)
             if (match != null) {
                 val itemName = match.groupValues[1]
                 val quantity = match.groupValues[2].toIntOrNull() ?: 1
@@ -188,9 +274,8 @@ class LogMonitorService : Service() {
                     fireValue = 0,
                     rawLine = line
                 ))
+                return
             }
-        } catch (e: Exception) {
-            Log.e("LogMonitor", "processLine error", e)
         }
     }
 
@@ -214,8 +299,8 @@ class LogMonitorService : Service() {
     override fun onDestroy() {
         running = false
         try {
-            logcatThread?.interrupt()
-            logcatThread?.join(500)
+            monitorThread?.interrupt()
+            monitorThread?.join(500)
         } catch (_: Exception) {}
         super.onDestroy()
     }
