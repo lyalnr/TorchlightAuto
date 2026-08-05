@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.FileObserver
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import rikka.shizuku.Shizuku
@@ -18,7 +19,7 @@ import java.io.InputStreamReader
 class LogMonitorService : Service() {
 
     private lateinit var fileObserver: FileObserver
-    private var lastPos = 0L
+    private var lastLineCount = 0L
     private var logPath = ""
 
     companion object {
@@ -82,6 +83,7 @@ class LogMonitorService : Service() {
             }
         }
         fileObserver.startWatching()
+        // 首次启动读取已有内容
         readNewLines()
     }
 
@@ -91,18 +93,28 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
-            val process = Shizuku.newProcess(arrayOf("cat", logPath), null, null)
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            var line: String?
-            var currentPos = 0L
-            while (reader.readLine().also { line = it } != null) {
-                currentPos++
-                if (currentPos > lastPos) {
+
+            val service = Shizuku.getService() ?: return
+
+            // 1. 获取当前文件总行数
+            val wcPfd = service.executeShellCommand("wc -l < $logPath")
+            val wcReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(wcPfd)))
+            val lineCountStr = wcReader.readText().trim()
+            wcReader.close()
+            val totalLines = lineCountStr.toLongOrNull() ?: 0
+
+            if (totalLines > lastLineCount) {
+                // 2. 有新增行，用 tail 读取新增部分
+                val startLine = lastLineCount + 1
+                val tailPfd = service.executeShellCommand("tail -n +$startLine $logPath")
+                val tailReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(tailPfd)))
+                var line: String?
+                while (tailReader.readLine().also { line = it } != null) {
                     processLine(line!!)
                 }
+                tailReader.close()
+                lastLineCount = totalLines
             }
-            lastPos = currentPos
-            process.waitFor()
         } catch (e: Exception) {
             Log.e("LogMonitor", "读取日志失败", e)
         }
