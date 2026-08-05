@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
@@ -23,6 +24,11 @@
 
         <service
             android:name=".LogMonitorService"
+            android:enabled="true"
+            android:exported="false" />
+
+        <service
+            android:name=".FloatingWindowService"
             android:enabled="true"
             android:exported="false" />
     </application>

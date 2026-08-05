@@ -13,11 +13,31 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
+    <EditText
+        android:id="@+id/pathInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="日志文件路径"
+        android:text="/storage/emulated/0/Android/data/com.xindong.torchlight/files/UE4Game/UE_game/UE_game/Saved/Logs/UE_game.log"
+        android:inputType="textUri" />
+
+    <Button
+        android:id="@+id/savePathButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="保存路径" />
+
     <Button
         android:id="@+id/startStopButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="开始监控" />
+
+    <Button
+        android:id="@+id/floatToggleButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="开启悬浮窗" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerView"
