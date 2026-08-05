@@ -29,8 +29,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setupUI()
-        requestPermissions()
         registerReceivers()
+        checkAllPermissions()
     }
 
     private fun setupUI() {
@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(btnStop)
 
         val tvHint = TextView(this).apply {
-            text = "📋 日志输出："
+            text = "📋 日志输出：\n"
             textSize = 14f
             setPadding(0, 16, 0, 8)
         }
@@ -75,21 +75,49 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun requestPermissions() {
-        // Android 13+ 必须申请通知权限，否则 startForeground 会崩溃
+    private fun checkAllPermissions() {
+        // 1. 通知权限（Android 13+ 必需，否则 startForeground 崩溃）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
+                appendLog("⚠️ 需要通知权限，正在申请...")
                 ActivityCompat.requestPermissions(this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+            } else {
+                appendLog("✅ 通知权限已授权")
             }
         }
 
-        // 悬浮窗权限
+        // 2. 悬浮窗权限
         if (!Settings.canDrawOverlays(this)) {
+            appendLog("⚠️ 需要悬浮窗权限，请授权")
             Toast.makeText(this, "请授予悬浮窗权限", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")))
+        } else {
+            appendLog("✅ 悬浮窗权限已授权")
+        }
+
+        // 3. Shizuku 状态检查
+        checkShizukuStatus()
+    }
+
+    private fun checkShizukuStatus() {
+        try {
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val pingMethod = shizukuClass.getMethod("pingBinder")
+            val connected = pingMethod.invoke(null) as? Boolean ?: false
+            
+            if (connected) {
+                appendLog("✅ Shizuku 已连接")
+            } else {
+                appendLog("❌ Shizuku 未连接！")
+                appendLog("👉 步骤：打开 Shizuku → 启动 → 配对/授权 → 允许本应用")
+                appendLog("   然后点击「开始监控」")
+            }
+        } catch (e: Exception) {
+            appendLog("❌ Shizuku 检查失败: ${e.message}")
+            appendLog("👉 请确认已安装 Shizuku 应用")
         }
     }
 
@@ -122,6 +150,7 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(logReceiver, IntentFilter(LogMonitorService.ACTION_LOG_ENTRY))
             registerReceiver(debugReceiver, IntentFilter(LogMonitorService.ACTION_DEBUG))
         }
+        appendLog("📡 广播接收器已注册")
     }
 
     private fun appendLog(msg: String) {
@@ -132,22 +161,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMonitoring() {
-        if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")))
-            return
-        }
-
-        // Android 13+ 检查通知权限
+        // 再次检查通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "请先授予通知权限", Toast.LENGTH_SHORT).show()
+                appendLog("❌ 请先授予通知权限！")
                 ActivityCompat.requestPermissions(this,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
                 return
             }
+        }
+
+        // 检查 Shizuku
+        try {
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val pingMethod = shizukuClass.getMethod("pingBinder")
+            val connected = pingMethod.invoke(null) as? Boolean ?: false
+            if (!connected) {
+                appendLog("❌ Shizuku 未连接，无法启动监控")
+                appendLog("👉 请先去 Shizuku 应用里授权本软件")
+                return
+            }
+        } catch (e: Exception) {
+            appendLog("❌ Shizuku 检查失败: ${e.message}")
+            return
         }
 
         try {
@@ -159,7 +196,7 @@ class MainActivity : AppCompatActivity() {
             }
             appendLog(">>> 服务启动指令已发送")
         } catch (e: Exception) {
-            appendLog(">>> 启动失败: ${e.message}")
+            appendLog(">>> 💥 启动失败: ${e.message}")
             Log.e("MainActivity", "Start service error", e)
         }
     }
@@ -170,6 +207,18 @@ class MainActivity : AppCompatActivity() {
             appendLog(">>> 服务已停止")
         } catch (e: Exception) {
             appendLog(">>> 停止失败: ${e.message}")
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                appendLog("✅ 通知权限已授予")
+            } else {
+                appendLog("❌ 通知权限被拒绝！没有此权限服务会崩溃")
+                appendLog("👉 请去设置 → 应用 → 火炬助手 → 通知 → 允许")
+            }
         }
     }
 

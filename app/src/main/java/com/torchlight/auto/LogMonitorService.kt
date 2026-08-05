@@ -32,23 +32,23 @@ class LogMonitorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // 立即启动前台服务，这是 Android 8+ 的强制要求
         try {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification("正在初始化..."))
+            sendDebug("✅ 前台服务已启动")
         } catch (e: Exception) {
-            Log.e("LogMonitor", "前台服务启动失败: ${e.message}", e)
-            sendDebug("前台服务启动失败: ${e.message}")
+            sendDebug("💥 前台服务启动失败: ${e.message}")
+            Log.e("LogMonitor", "Foreground service failed", e)
             stopSelf()
-            return
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        sendDebug("📡 onStartCommand 被调用")
         if (!running) {
             running = true
             Thread {
-                Thread.sleep(300) // 确保前台服务稳定
+                Thread.sleep(200)
                 startLogcatMonitor()
             }.start()
         }
@@ -65,7 +65,7 @@ class LogMonitorService : Service() {
                 )
                 getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
             } catch (e: Exception) {
-                Log.e("LogMonitor", "通知渠道创建失败", e)
+                Log.e("LogMonitor", "Channel create failed", e)
             }
         }
     }
@@ -84,33 +84,37 @@ class LogMonitorService : Service() {
             val nm = getSystemService(NotificationManager::class.java)
             nm?.notify(NOTIFICATION_ID, createNotification(text))
         } catch (e: Exception) {
-            Log.e("LogMonitor", "更新通知失败", e)
+            Log.e("LogMonitor", "Notify failed", e)
         }
     }
 
     private fun startLogcatMonitor() {
         logcatThread = Thread {
             try {
-                // 反射获取 Shizuku 类
+                sendDebug("🔍 正在检查 Shizuku 连接...")
+                
                 val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
                 val pingMethod = shizukuClass.getMethod("pingBinder")
                 val connected = pingMethod.invoke(null) as? Boolean ?: false
                 
                 if (!connected) {
-                    sendDebug("❌ Shizuku 未连接！请打开 Shizuku 应用并授权本软件")
+                    sendDebug("❌ Shizuku 未连接！")
+                    sendDebug("👉 请打开 Shizuku 应用 → 启动服务 → 找到「火炬助手」→ 允许")
                     updateNotification("Shizuku 未连接")
+                    running = false
                     return@Thread
                 }
 
-                sendDebug("✅ Shizuku 已连接，正在启动 logcat...")
+                sendDebug("✅ Shizuku 已连接")
+                sendDebug("🚀 正在启动 logcat，请去游戏里捡东西...")
                 updateNotification("正在抓取日志...")
                 
-                // 反射调用 newProcess（兼容不同签名）
                 val method = shizukuClass.declaredMethods.find { 
                     it.name == "newProcess" && it.parameterCount == 3 
                 }
                 if (method == null) {
                     sendDebug("❌ 找不到 Shizuku.newProcess 方法")
+                    running = false
                     return@Thread
                 }
                 method.isAccessible = true
@@ -125,10 +129,11 @@ class LogMonitorService : Service() {
                 if (process == null) {
                     sendDebug("❌ 无法创建 logcat 进程")
                     updateNotification("进程创建失败")
+                    running = false
                     return@Thread
                 }
 
-                sendDebug("🚀 logcat 已启动，去游戏里捡东西试试...")
+                sendDebug("📥 logcat 已启动，等待游戏日志...")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
                 var count = 0
@@ -154,13 +159,15 @@ class LogMonitorService : Service() {
                 }
 
                 try { reader.close() } catch (_: Exception) {}
-                sendDebug("监控结束，共处理 $count 行")
+                sendDebug("🏁 监控结束，共处理 $count 行")
                 updateNotification("监控已停止")
 
             } catch (e: Exception) {
                 sendDebug("💥 严重异常: ${e.javaClass.simpleName}: ${e.message}")
                 Log.e("LogMonitor", "Service crash", e)
                 updateNotification("错误: ${e.message}")
+            } finally {
+                running = false
             }
         }
         logcatThread?.start()
@@ -212,6 +219,7 @@ class LogMonitorService : Service() {
             logcatThread?.interrupt()
             logcatThread?.join(500)
         } catch (_: Exception) {}
+        sendDebug("🛑 Service 已销毁")
         super.onDestroy()
     }
 
