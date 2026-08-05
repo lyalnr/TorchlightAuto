@@ -21,9 +21,11 @@ class LogMonitorService : Service() {
     private var logPath = ""
 
     companion object {
-        private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
+        // 先尝试匹配"掉落"关键词，同时保留原始行用于调试
+        private val DROP_PATTERN = Regex("掉落|drop|pickup|获得|得到|拾取|奖励|战利品", RegexOption.IGNORE_CASE)
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
+        private const val MAX_RAW_LINES = 50  // 最多保留50行原始日志用于调试
     }
 
     override fun onCreate() {
@@ -107,15 +109,15 @@ class LogMonitorService : Service() {
         val reader = BufferedReader(InputStreamReader(process.inputStream))
         var line: String?
         while (reader.readLine().also { line = it } != null) {
-            processLine(line!!)
+            val trimmed = line!!.trim()
+            if (trimmed.isNotEmpty()) {
+                processLine(trimmed)
+            }
         }
         reader.close()
         process.waitFor()
     }
 
-    /**
-     * 使用反射调用 Shizuku.newProcess()，绕过 private 限制
-     */
     private fun execShell(command: String): Process? {
         return try {
             val method = Shizuku::class.java.getDeclaredMethod(
@@ -133,14 +135,13 @@ class LogMonitorService : Service() {
     }
 
     private fun processLine(line: String) {
-        val matchResult = PATTERN.find(line)
-        if (matchResult != null) {
-            val itemName = matchResult.groupValues[1]
-            val quantity = matchResult.groupValues[2].toIntOrNull() ?: 0
+        // 策略：先把所有包含"掉落"相关关键词的行都发出去
+        // 同时发一条"原始日志"用于调试，让用户看到日志里实际有什么
+        if (DROP_PATTERN.containsMatchIn(line)) {
             val entry = LogEntry(
                 timestamp = System.currentTimeMillis(),
-                item = itemName,
-                quantity = quantity,
+                item = line,  // 暂时把整行内容当物品名显示
+                quantity = 1,
                 fireValue = 0,
                 rawLine = line
             )
