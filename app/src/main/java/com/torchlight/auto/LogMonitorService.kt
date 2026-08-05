@@ -18,9 +18,16 @@ class LogMonitorService : Service() {
     private var running = false
 
     companion object {
-        private val PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
+        private val DROP_PATTERN = Regex("掉落\\s+(\\S+)\\s+x\\s*(\\d+)")
         private const val CHANNEL_ID = "log_monitor_channel"
         private const val NOTIFICATION_ID = 1001
+        const val ACTION_LOG_ENTRY = "com.torchlight.auto.LOG_ENTRY"
+        
+        private val KEYWORDS = listOf(
+            "pickup", "drop", "item", "获得", "掉落", "拾取",
+            "additem", "itemid", "奖励", "战利品", "物品",
+            "通货", "装备", "传奇", "稀有", "史诗"
+        )
     }
 
     override fun onCreate() {
@@ -50,9 +57,10 @@ class LogMonitorService : Service() {
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("日志监控")
-            .setContentText("正在抓取系统日志...")
+            .setContentTitle("火炬之光掉落监控")
+            .setContentText("正在后台运行...")
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
+            .setOngoing(true)
             .build()
     }
 
@@ -60,91 +68,105 @@ class LogMonitorService : Service() {
         logcatThread = Thread {
             try {
                 if (!Shizuku.pingBinder()) {
-                    sendDebug("错误: Shizuku 未连接")
+                    sendDebug("错误: Shizuku 未连接，请检查 Shizuku 是否已启动并授权")
                     return@Thread
                 }
 
-                sendDebug("正在启动 logcat 抓取...")
+                sendDebug("正在启动 logcat...")
+                
+                val process = Shizuku.newProcess(
+                    arrayOf("logcat", "-v", "threadtime"),
+                    null, null
+                ) ?: run {
+                    sendDebug("错误: 无法创建 logcat 进程")
+                    return@Thread
+                }
 
-                val process = execShell(
-                    "logcat -v threadtime | grep -iE 'pickup|drop|item|获得|掉落|拾取|AddItem|ItemID|奖励|战利品|物品|通货|装备|传奇|稀有|史诗'"
-                ) ?: return@Thread
-
+                sendDebug("logcat 已启动，等待游戏日志...")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
-                var line: String? = null
+                var line: String?
                 var count = 0
 
-                while (running && reader.readLine().also { line = it } != null) {
+                while (running) {
+                    line = try {
+                        reader.readLine()
+                    } catch (e: Exception) {
+                        sendDebug("读取中断: ${e.message}")
+                        break
+                    }
+                    
+                    if (line == null) break
+                    
                     count++
-                    val trimmed = line?.trim() ?: ""
-                    if (trimmed.isNotEmpty()) {
+                    val trimmed = line.trim()
+                    if (trimmed.isEmpty()) continue
+
+                    if (containsKeyword(trimmed)) {
                         sendDebug("[$count] $trimmed")
                         processLine(trimmed)
                     }
                 }
 
-                reader.close()
-                sendDebug("logcat 读取结束，共 $count 行")
+                try { reader.close() } catch (_: Exception) {}
+                sendDebug("监控结束，共处理 $count 行")
 
             } catch (e: Exception) {
-                sendDebug("异常: ${e.javaClass.simpleName}: ${e.message}")
+                sendDebug("严重异常: ${e.javaClass.simpleName}: ${e.message}")
+                Log.e("LogMonitor", "Service crash", e)
             }
         }
         logcatThread?.start()
     }
 
-    private fun execShell(command: String): Process? {
-        return try {
-            val method = Shizuku::class.java.getDeclaredMethod(
-                "newProcess",
-                Array<String>::class.java,
-                Array<String>::class.java,
-                String::class.java
-            )
-            method.isAccessible = true
-            method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
-        } catch (e: Exception) {
-            sendDebug("Shizuku执行失败: ${e.message}")
-            null
-        }
+    private fun containsKeyword(line: String): Boolean {
+        return KEYWORDS.any { line.contains(it, ignoreCase = true) }
     }
 
     private fun processLine(line: String) {
-        val matchResult = PATTERN.find(line)
-        if (matchResult != null) {
-            val itemName = matchResult.groupValues[1]
-            val quantity = matchResult.groupValues[2].toIntOrNull() ?: 0
-            val entry = LogEntry(
-                timestamp = System.currentTimeMillis(),
-                item = itemName,
-                quantity = quantity,
-                fireValue = 0,
-                rawLine = line
-            )
-            val intent = Intent("LOG_ENTRY")
-            intent.putExtra("entry", entry)
-            sendBroadcast(intent)
+        try {
+            val match = DROP_PATTERN.find(line)
+            if (match != null) {
+                val itemName = match.groupValues[1]
+                val quantity = match.groupValues[2].toIntOrNull() ?: 1
+                sendEntry(LogEntry(
+                    timestamp = System.currentTimeMillis(),
+                    item = itemName,
+                    quantity = quantity,
+                    fireValue = 0,
+                    rawLine = line
+                ))
+            }
+        } catch (e: Exception) {
+            Log.e("LogMonitor", "processLine error", e)
+        }
+    }
+
+    private fun sendEntry(entry: LogEntry) {
+        try {
+            sendBroadcast(Intent(ACTION_LOG_ENTRY).putExtra("entry", entry))
+        } catch (e: Exception) {
+            Log.e("LogMonitor", "Broadcast error", e)
         }
     }
 
     private fun sendDebug(msg: String) {
         Log.d("LogMonitor", msg)
-        val entry = LogEntry(
+        sendEntry(LogEntry(
             timestamp = System.currentTimeMillis(),
             item = "[调试] $msg",
             quantity = 0,
             fireValue = 0,
             rawLine = msg
-        )
-        val intent = Intent("LOG_ENTRY")
-        intent.putExtra("entry", entry)
-        sendBroadcast(intent)
+        ))
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         running = false
-        logcatThread?.interrupt()
+        try {
+            logcatThread?.interrupt()
+            logcatThread?.join(500)
+        } catch (_: Exception) {}
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
