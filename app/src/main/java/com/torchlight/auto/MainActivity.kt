@@ -114,21 +114,42 @@ class MainActivity : AppCompatActivity() {
             val pingMethod = shizukuClass.getMethod("pingBinder")
             val connected = pingMethod.invoke(null) as? Boolean ?: false
             
-            if (connected) {
-                val uidMethod = shizukuClass.getMethod("getUid")
-                val uid = uidMethod.invoke(null) as? Int ?: -1
-                if (uid > 0) {
-                    appendLog("✅ Shizuku 已连接且已授权")
-                } else {
-                    appendLog("⚠️ Shizuku 已连接但未授权本应用")
-                    appendLog("👉 Shizuku → 应用管理 → 日志监控 → 允许")
-                }
-            } else {
-                appendLog("❌ Shizuku 未连接")
-                appendLog("👉 打开 Shizuku → 启动服务")
+            if (!connected) {
+                appendLog("❌ Shizuku 未启动")
+                appendLog("👉 请先打开 Shizuku 应用并启动服务")
+                return
             }
+
+            // 检查是否授权了本应用
+            val uidMethod = shizukuClass.getMethod("getUid")
+            val uid = uidMethod.invoke(null) as? Int ?: -1
+            if (uid <= 0) {
+                appendLog("❌ Shizuku 未授权「日志监控」")
+                appendLog("👉 正在跳转到 Shizuku 授权页面...")
+                
+                // 自动跳转到 Shizuku 应用管理页面
+                try {
+                    val intent = Intent().apply {
+                        setClassName("moe.shizuku.privileged.api", 
+                            "moe.shizuku.manager.MainActivity")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                    Toast.makeText(this, 
+                        "请在 Shizuku 里找到「日志监控」并打开开关", 
+                        Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    // 如果跳转失败，提示用户手动打开
+                    appendLog("⚠️ 无法自动跳转，请手动打开 Shizuku")
+                    appendLog("   路径：Shizuku → 应用管理 → 日志监控 → 允许")
+                }
+                return
+            }
+            
+            appendLog("✅ Shizuku 已连接且已授权")
         } catch (e: Exception) {
             appendLog("❌ Shizuku 检查失败: ${e.message}")
+            appendLog("👉 请确认已安装 Shizuku")
         }
     }
 
@@ -227,6 +248,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startMonitoring() {
+        // 再次检查 Shizuku 授权
+        try {
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val pingMethod = shizukuClass.getMethod("pingBinder")
+            val connected = pingMethod.invoke(null) as? Boolean ?: false
+            if (!connected) {
+                appendLog("❌ Shizuku 未启动，无法监控")
+                return
+            }
+            val uidMethod = shizukuClass.getMethod("getUid")
+            val uid = uidMethod.invoke(null) as? Int ?: -1
+            if (uid <= 0) {
+                appendLog("❌ Shizuku 未授权本应用")
+                appendLog("👉 请去 Shizuku → 应用管理 → 日志监控 → 允许")
+                return
+            }
+        } catch (e: Exception) {
+            appendLog("❌ Shizuku 检查失败: ${e.message}")
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -268,7 +310,7 @@ class MainActivity : AppCompatActivity() {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 appendLog("✅ 通知权限已授予")
             } else {
-                appendLog("❌ 通知权限被拒绝，服务可能会崩溃")
+                appendLog("❌ 通知权限被拒绝")
             }
         }
     }
