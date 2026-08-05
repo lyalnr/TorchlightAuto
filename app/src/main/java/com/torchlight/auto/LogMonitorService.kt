@@ -8,7 +8,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.FileObserver
 import android.os.IBinder
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import rikka.shizuku.Shizuku
@@ -88,22 +87,30 @@ class LogMonitorService : Service() {
                 Log.e("LogMonitor", "Shizuku 未连接")
                 return
             }
-            val service = Shizuku.getService() ?: return
-            val wcPfd = service.executeShellCommand("wc -l < $logPath")
-            val wcReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(wcPfd)))
+            // ✅ 使用 Shizuku.newProcess() (需要 13.x+)
+            val process = Shizuku.newProcess(
+                arrayOf("sh", "-c", "wc -l < \"$logPath\""),
+                null, null
+            )
+            val wcReader = BufferedReader(InputStreamReader(process.inputStream))
             val lineCountStr = wcReader.readText().trim()
             wcReader.close()
             val totalLines = lineCountStr.toLongOrNull() ?: 0
+            process.waitFor()
 
             if (totalLines > lastLineCount) {
                 val startLine = lastLineCount + 1
-                val tailPfd = service.executeShellCommand("tail -n +$startLine $logPath")
-                val tailReader = BufferedReader(InputStreamReader(ParcelFileDescriptor.AutoCloseInputStream(tailPfd)))
+                val tailProcess = Shizuku.newProcess(
+                    arrayOf("sh", "-c", "tail -n +$startLine \"$logPath\""),
+                    null, null
+                )
+                val tailReader = BufferedReader(InputStreamReader(tailProcess.inputStream))
                 var line: String?
                 while (tailReader.readLine().also { line = it } != null) {
                     processLine(line!!)
                 }
                 tailReader.close()
+                tailProcess.waitFor()
                 lastLineCount = totalLines
             }
         } catch (e: Exception) {
