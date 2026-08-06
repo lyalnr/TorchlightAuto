@@ -17,14 +17,13 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
-import java.io.InputStream
 
 class RegionSelectActivity : AppCompatActivity() {
 
@@ -35,8 +34,11 @@ class RegionSelectActivity : AppCompatActivity() {
     private var endX = 0f
     private var endY = 0f
     private var drawing = false
-    private var imgW = 0f
-    private var imgH = 0f
+
+    private var imgDrawX = 0f
+    private var imgDrawY = 0f
+    private var imgDrawW = 0f
+    private var imgDrawH = 0f
 
     companion object {
         const val PICK_IMAGE = 1001
@@ -45,55 +47,66 @@ class RegionSelectActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        window.setBackgroundDrawableResource(android.R.color.black)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            window.statusBarColor = Color.BLACK
+            window.navigationBarColor = Color.BLACK
+        }
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+        )
+
+        val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
         }
 
-        // 顶部提示
+        overlayView = OverlayView(this)
+        root.addView(overlayView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+
         val tvInfo = TextView(this).apply {
-            text = "📸 请上传一张横屏游戏截图，然后在截图上框选识别区域"
+            text = "📸 请上传截图，然后在上面框选识别区域\n👆 手指按住拖动"
             textSize = 14f
             setTextColor(Color.WHITE)
-            setPadding(20, 40, 20, 20)
+            setShadowLayer(6f, 0f, 0f, Color.BLACK)
+            setPadding(40, 20, 40, 20)
         }
         root.addView(tvInfo)
 
-        // 上传按钮
         val btnPick = Button(this).apply {
             text = "📁 选择截图"
+            setPadding(40, 20, 40, 20)
             setOnClickListener { pickImage() }
         }
-        root.addView(btnPick)
+        val pickParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL; topMargin = 80 }
+        root.addView(btnPick, pickParams)
 
-        // 截图显示区域
-        val frame = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0, 1f
-            )
-        }
-        root.addView(frame)
-
-        overlayView = OverlayView(this)
-        frame.addView(overlayView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-
-        // 底部按钮
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(20, 10, 20, 40)
+            setPadding(40, 0, 40, 20)
         }
+        val btnParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = android.view.Gravity.BOTTOM }
+        root.addView(btnRow, btnParams)
+
         btnRow.addView(Button(this).apply {
             text = "取消"
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener { finish() }
         })
+
         btnRow.addView(Button(this).apply {
             text = "确认"
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener { saveAndExit() }
         })
-        root.addView(btnRow)
 
         setContentView(root)
     }
@@ -108,22 +121,13 @@ class RegionSelectActivity : AppCompatActivity() {
         if (requestCode == PICK_IMAGE && resultCode == Activity.RESULT_OK && data != null) {
             val uri: Uri = data.data ?: return
             try {
-                val input: InputStream? = contentResolver.openInputStream(uri)
+                val input = contentResolver.openInputStream(uri)
                 val bmp = BitmapFactory.decodeStream(input)
                 input?.close()
                 if (bmp != null) {
-                    // 如果图片是竖屏的，旋转90度变成横屏
-                    screenshotBitmap = if (bmp.height > bmp.width) {
-                        val matrix = Matrix()
-                        matrix.postRotate(90f)
-                        Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-                    } else {
-                        bmp
-                    }
-                    imgW = screenshotBitmap!!.width.toFloat()
-                    imgH = screenshotBitmap!!.height.toFloat()
-                    overlayView.setBitmap(screenshotBitmap!!)
-                    Toast.makeText(this, "截图已加载，请在上面框选区域", Toast.LENGTH_SHORT).show()
+                    screenshotBitmap = bmp
+                    overlayView.setBitmap(bmp)
+                    Toast.makeText(this, "截图已加载，请框选区域", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(this, "加载图片失败: ${e.message}", Toast.LENGTH_LONG).show()
@@ -136,15 +140,14 @@ class RegionSelectActivity : AppCompatActivity() {
             Toast.makeText(this, "请先上传截图并框选区域", Toast.LENGTH_SHORT).show()
             return
         }
-        val viewW = overlayView.width.toFloat()
-        val viewH = overlayView.height.toFloat()
-        if (viewW == 0f || viewH == 0f) { finish(); return }
+        if (imgDrawW <= 0 || imgDrawH <= 0) {
+            finish(); return
+        }
 
-        // 将屏幕坐标转换为图片比例
-        val left = (minOf(startX, endX) / viewW).coerceIn(0f, 1f)
-        val top = (minOf(startY, endY) / viewH).coerceIn(0f, 1f)
-        val right = (maxOf(startX, endX) / viewW).coerceIn(0f, 1f)
-        val bottom = (maxOf(startY, endY) / viewH).coerceIn(0f, 1f)
+        val left = ((minOf(startX, endX) - imgDrawX) / imgDrawW).coerceIn(0f, 1f)
+        val top = ((minOf(startY, endY) - imgDrawY) / imgDrawH).coerceIn(0f, 1f)
+        val right = ((maxOf(startX, endX) - imgDrawX) / imgDrawW).coerceIn(0f, 1f)
+        val bottom = ((maxOf(startY, endY) - imgDrawY) / imgDrawH).coerceIn(0f, 1f)
 
         getSharedPreferences("ocr_settings", Context.MODE_PRIVATE).edit().apply {
             putFloat("cropL", left)
@@ -200,16 +203,21 @@ class RegionSelectActivity : AppCompatActivity() {
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            // 先画截图
             bitmap?.let { bmp ->
-                val scale = minOf(width.toFloat() / bmp.width, height.toFloat() / bmp.height)
-                val bw = bmp.width * scale
-                val bh = bmp.height * scale
-                val bx = (width - bw) / 2
-                val by = (height - bh) / 2
+                val screenW = width.toFloat()
+                val screenH = height.toFloat()
+                val bmpW = bmp.width.toFloat()
+                val bmpH = bmp.height.toFloat()
+
+                val scale = minOf(screenW / bmpW, screenH / bmpH)
+                imgDrawW = bmpW * scale
+                imgDrawH = bmpH * scale
+                imgDrawX = (screenW - imgDrawW) / 2
+                imgDrawY = (screenH - imgDrawH) / 2
+
                 val matrix = Matrix()
                 matrix.postScale(scale, scale)
-                matrix.postTranslate(bx, by)
+                matrix.postTranslate(imgDrawX, imgDrawY)
                 canvas.drawBitmap(bmp, matrix, bmpPaint)
             }
             if (!drawing) return
