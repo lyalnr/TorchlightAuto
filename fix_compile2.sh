@@ -1,3 +1,10 @@
+#!/bin/bash
+set -e
+cd ~/TorchlightAuto || { echo "❌ 先 cd 到项目根目录"; exit 1; }
+echo "🔧 修复编译错误..."
+
+# 1. 修复 MainActivity.kt addView 参数
+cat > app/src/main/java/com/torchlight/auto/MainActivity.kt << 'KOTLIN_EOF'
 package com.torchlight.auto
 
 import android.Manifest
@@ -173,3 +180,10 @@ class MainActivity : AppCompatActivity() {
         override fun createFragment(position: Int) = fragments[position]
     }
 }
+KOTLIN_EOF
+
+# 2. 修复 Page1Fragment.kt 缺少 Context import
+sed -i '1i\import android.content.Context' app/src/main/java/com/torchlight/auto/Page1Fragment.kt
+
+echo "✅ 修复完成！"
+echo "下一步：git add . && git commit -m "fix: addView参数和Context引用" && git push"

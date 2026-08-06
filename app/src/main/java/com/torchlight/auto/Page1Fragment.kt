@@ -1,3 +1,4 @@
+import android.content.Context
 package com.torchlight.auto
 import android.os.Bundle
 import android.view.LayoutInflater
