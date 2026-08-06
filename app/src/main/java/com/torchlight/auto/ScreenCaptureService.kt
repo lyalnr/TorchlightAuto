@@ -38,6 +38,8 @@ class ScreenCaptureService : Service() {
     private var w = 0; private var h = 0; private var density = 0
     var cropL = 0.55f; var cropT = 0.08f; var cropR = 0.95f; var cropB = 0.42f
 
+    private val lastSeenTime = mutableMapOf<String, Long>()
+
     companion object {
         const val ACTION_RESULT = "com.torchlight.auto.OCR_RESULT"
         const val ACTION_DEBUG = "com.torchlight.auto.OCR_DEBUG"
@@ -156,16 +158,29 @@ class ScreenCaptureService : Service() {
     }
 
     private fun processText(text: String, color: String) {
+        val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
+        val cooldown = prefs.getInt("recognition_cooldown", 500).toLong()
+
         val dao = AppDatabase.getDatabase(this).itemDao()
         val allItems = dao.getAll().filter { it.enabled }
         val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
+
         if (matched != null) {
-            // 检查该物品是否允许此颜色
+            // 冷却检查：同一物品N秒内不再重复计数
+            val now = System.currentTimeMillis()
+            val last = lastSeenTime[matched.name] ?: 0
+            if (now - last < cooldown) {
+                return
+            }
+            lastSeenTime[matched.name] = now
+
+            // 颜色检查
             val allowedColors = matched.enabledColors.split(",").toSet()
             if (color != "未知" && color !in allowedColors) {
                 sendDebug("🚫 [${matched.name}] 跳过颜色: $color (允许: ${matched.enabledColors})")
                 return
             }
+
             DropRepository.addDrop(matched.name, matched.price, color)
             sendResult(matched.name, matched.price, color)
             sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
