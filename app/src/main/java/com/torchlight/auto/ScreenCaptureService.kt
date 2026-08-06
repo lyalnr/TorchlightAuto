@@ -170,7 +170,7 @@ class ScreenCaptureService : Service() {
             sendResult(matched.name, matched.price, color)
             sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
         } else {
-            val newItem = ItemEntity(name = text, price = -1f, color = color, enabled = true)
+            val newItem = ItemEntity(name = text, price = -1f, enabled = true)
             dao.insert(newItem)
             DropRepository.addDrop(text, -1f, color)
             sendResult(text, -1f, color)
