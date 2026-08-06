@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 
 class Page1Fragment : Fragment() {
@@ -89,24 +90,39 @@ class Page1Fragment : Fragment() {
 
         val btnSelect = Button(context).apply {
             text = "✂️ 框选识别区域"
-            setOnClickListener { try {
-                startActivity(Intent(requireContext(), RegionSelectActivity::class.java)) } catch (e: Exception) { android.widget.Toast.makeText(requireContext(), "启动失败: ${e.message}", android.widget.Toast.LENGTH_LONG).show() }
+            setOnClickListener {
+                try {
+                    startActivity(Intent(requireContext(), RegionSelectActivity::class.java))
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(), "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
         root.addView(btnSelect)
 
-        // 读取已保存的区域
         loadSavedArea(tvArea)
 
         val btnStart = Button(context).apply {
             text = "▶ 开始录屏识别"
-            setOnClickListener { try { (activity as MainActivity).startOCR() }
+            setOnClickListener {
+                try {
+                    (activity as MainActivity).startOCR()
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(), "录屏启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
         root.addView(btnStart)
 
         val btnStop = Button(context).apply {
             text = "⏹ 停止并清空"
-            setOnClickListener { try { (activity as MainActivity).stopOCR() }
+            setOnClickListener {
+                try {
+                    (activity as MainActivity).stopOCR()
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(), "停止失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
         root.addView(btnStop)
 
