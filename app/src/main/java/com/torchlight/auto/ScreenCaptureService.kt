@@ -110,7 +110,7 @@ class ScreenCaptureService : Service() {
             rw = (rw * s).toInt(); rh = (rh * s).toInt()
         }
 
-        imageReader = ImageReader.newInstance(rw, rh, android.graphics.ImageFormat.RGBA_8888, 2)
+        imageReader = ImageReader.newInstance(rw, rh, android.graphics.PixelFormat.RGBA_8888, 2)
         virtualDisplay = projection?.createVirtualDisplay("Cap", rw, rh, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader?.surface, null, null)
 
