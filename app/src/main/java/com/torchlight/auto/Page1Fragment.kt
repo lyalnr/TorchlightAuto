@@ -6,7 +6,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -21,8 +20,6 @@ class Page1Fragment : Fragment() {
     var cropR = 0.95f
     var cropB = 0.42f
     private val prefs by lazy { requireContext().getSharedPreferences("ocr_settings", Context.MODE_PRIVATE) }
-    private val allColors = listOf("红色", "金色", "紫色", "蓝色")
-    private val colorChecks = mutableMapOf<String, CheckBox>()
 
     override fun onCreateView(inf: LayoutInflater, c: ViewGroup?, s: Bundle?): View? {
         val root = LinearLayout(context).apply {
@@ -56,24 +53,6 @@ class Page1Fragment : Fragment() {
         })
         root.addView(tvInterval)
         root.addView(skInterval)
-
-        // 颜色过滤
-        root.addView(TextView(context).apply {
-            text = "\n🎨 只识别颜色 (勾选生效)："
-            textSize = 13f
-        })
-        val colorRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        val savedColors = prefs.getStringSet("enabled_colors", allColors.toSet()) ?: allColors.toSet()
-        for (color in allColors) {
-            val cb = CheckBox(context).apply {
-                text = color
-                isChecked = color in savedColors
-                setOnCheckedChangeListener { _, _ -> saveColors() }
-            }
-            colorChecks[color] = cb
-            colorRow.addView(cb)
-        }
-        root.addView(colorRow)
 
         // 区域微调
         root.addView(TextView(context).apply {
@@ -142,11 +121,6 @@ class Page1Fragment : Fragment() {
         root.addView(sv)
 
         return root
-    }
-
-    private fun saveColors() {
-        val selected = colorChecks.filter { it.value.isChecked }.keys.toSet()
-        prefs.edit().putStringSet("enabled_colors", selected).apply()
     }
 
     private fun btn(t: String, click: () -> Unit) = Button(context).apply {

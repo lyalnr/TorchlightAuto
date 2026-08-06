@@ -1,4 +1,5 @@
 package com.torchlight.auto
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -155,22 +156,19 @@ class ScreenCaptureService : Service() {
     }
 
     private fun processText(text: String, color: String) {
-        val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
-        val enabledColors = prefs.getStringSet("enabled_colors", setOf("红色","金色","紫色","蓝色")) ?: setOf("红色","金色","紫色","蓝色")
-        if (color != "未知" && color !in enabledColors) {
-            sendDebug("🚫 颜色过滤跳过: $text ($color)")
-            return
-        }
         val dao = AppDatabase.getDatabase(this).itemDao()
         val allItems = dao.getAll().filter { it.enabled }
         val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
         if (matched != null) {
-            val colorMatch = matched.color == "未知" || matched.color == color || color == "未知"
-            if (colorMatch) {
-                DropRepository.addDrop(matched.name, matched.price, color)
-                sendResult(matched.name, matched.price, color)
-                sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
+            // 检查该物品是否允许此颜色
+            val allowedColors = matched.enabledColors.split(",").toSet()
+            if (color != "未知" && color !in allowedColors) {
+                sendDebug("🚫 [${matched.name}] 跳过颜色: $color (允许: ${matched.enabledColors})")
+                return
             }
+            DropRepository.addDrop(matched.name, matched.price, color)
+            sendResult(matched.name, matched.price, color)
+            sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
         } else {
             val newItem = ItemEntity(name = text, price = -1f, color = color, enabled = true)
             dao.insert(newItem)
