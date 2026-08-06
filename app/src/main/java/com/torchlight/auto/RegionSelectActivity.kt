@@ -44,7 +44,7 @@ class RegionSelectActivity : AppCompatActivity() {
         }
         root.addView(tvInfo, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = 10; leftMargin = 10 })
+        ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.START; topMargin = 10; leftMargin = 10 })
 
         btnPick = Button(this).apply {
             text = "📁 选择截图"; textSize = 12f
@@ -53,7 +53,7 @@ class RegionSelectActivity : AppCompatActivity() {
         }
         root.addView(btnPick, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = 10 })
+        ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL; topMargin = 10 })
 
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -62,7 +62,7 @@ class RegionSelectActivity : AppCompatActivity() {
         }
         root.addView(btnRow, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.BOTTOM })
+        ).apply { gravity = android.view.Gravity.BOTTOM })
 
         btnRow.addView(Button(this).apply {
             text = "取消"; textSize = 12f
