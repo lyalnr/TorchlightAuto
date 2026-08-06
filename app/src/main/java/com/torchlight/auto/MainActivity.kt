@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -37,8 +38,31 @@ class MainActivity : AppCompatActivity() {
     private val floatMgr by lazy { FloatWindowManager(this) }
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
+    private val screenCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val p1 = pagerAdapter.fragments[0] as Page1Fragment
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra("resultCode", result.resultCode)
+                putExtra("data", result.data)
+                putExtra("left", p1.cropL)
+                putExtra("top", p1.cropT)
+                putExtra("right", p1.cropR)
+                putExtra("bottom", p1.cropB)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } else {
+            toast("录屏权限被拒绝")
+            floatMgr.hide()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        com.torchlight.auto.util.CrashLogger.init(this)
         super.onCreate(savedInstanceState)
         checkDayReset()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -86,9 +110,6 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
-        if (!Settings.canDrawOverlays(this)) {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        }
     }
 
     private fun registerReceivers() {
@@ -118,12 +139,13 @@ class MainActivity : AppCompatActivity() {
     fun startOCR() {
         if (!Settings.canDrawOverlays(this)) {
             toast("需要悬浮窗权限")
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             return
         }
         DropRepository.clear()
         floatMgr.show()
         val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        startActivityForResult(mgr.createScreenCaptureIntent(), 999)
+        screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
     }
 
     fun stopOCR() {
@@ -131,29 +153,6 @@ class MainActivity : AppCompatActivity() {
         floatMgr.hide()
         DropRepository.clear()
         (pagerAdapter.fragments[2] as? Page3Fragment)?.refresh()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 999 && resultCode == RESULT_OK && data != null) {
-            val p1 = pagerAdapter.fragments[0] as Page1Fragment
-            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                putExtra("resultCode", resultCode)
-                putExtra("data", data)
-                putExtra("left", p1.cropL)
-                putExtra("top", p1.cropT)
-                putExtra("right", p1.cropR)
-                putExtra("bottom", p1.cropB)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } else {
-            toast("录屏权限被拒绝")
-            floatMgr.hide()
-        }
     }
 
     fun toast(msg: String) {

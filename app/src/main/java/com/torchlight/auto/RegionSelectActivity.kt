@@ -4,11 +4,14 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.os.Build
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -26,6 +29,14 @@ class RegionSelectActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
+        }
+        window.setFormat(PixelFormat.TRANSLUCENT)
 
         val root = FrameLayout(this)
 
@@ -67,10 +78,7 @@ class RegionSelectActivity : AppCompatActivity() {
     }
 
     private fun saveAndExit() {
-        if (!drawing) {
-            finish()
-            return
-        }
+        if (!drawing) { finish(); return }
         val w = overlayView.width.toFloat()
         val h = overlayView.height.toFloat()
         if (w == 0f || h == 0f) { finish(); return }
@@ -103,30 +111,22 @@ class RegionSelectActivity : AppCompatActivity() {
             color = Color.parseColor("#AA000000")
         }
 
-        init {
-            setLayerType(LAYER_TYPE_SOFTWARE, null)
-        }
+        init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    startX = event.x
-                    startY = event.y
-                    endX = event.x
-                    endY = event.y
-                    drawing = true
-                    invalidate()
+                    startX = event.x; startY = event.y
+                    endX = event.x; endY = event.y
+                    drawing = true; invalidate()
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    endX = event.x
-                    endY = event.y
+                    endX = event.x; endY = event.y
                     invalidate()
                 }
                 MotionEvent.ACTION_UP -> {
-                    endX = event.x
-                    endY = event.y
-                    drawing = true
-                    invalidate()
+                    endX = event.x; endY = event.y
+                    drawing = true; invalidate()
                 }
             }
             return true
@@ -135,17 +135,10 @@ class RegionSelectActivity : AppCompatActivity() {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             if (!drawing) return
-
-            val l = minOf(startX, endX)
-            val t = minOf(startY, endY)
-            val r = maxOf(startX, endX)
-            val b = maxOf(startY, endY)
-
-            // 全屏遮罩
+            val l = minOf(startX, endX); val t = minOf(startY, endY)
+            val r = maxOf(startX, endX); val b = maxOf(startY, endY)
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paintDim)
-            // 挖空选中区域
             canvas.drawRect(l, t, r, b, paintClear)
-            // 画绿色边框
             canvas.drawRect(l, t, r, b, paintRect)
         }
     }

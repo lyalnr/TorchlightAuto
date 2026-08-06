@@ -89,8 +89,8 @@ class Page1Fragment : Fragment() {
 
         val btnSelect = Button(context).apply {
             text = "✂️ 框选识别区域"
-            setOnClickListener {
-                startActivity(Intent(requireContext(), RegionSelectActivity::class.java))
+            setOnClickListener { try {
+                startActivity(Intent(requireContext(), RegionSelectActivity::class.java)) } catch (e: Exception) { android.widget.Toast.makeText(requireContext(), "启动失败: ${e.message}", android.widget.Toast.LENGTH_LONG).show() }
             }
         }
         root.addView(btnSelect)
@@ -100,13 +100,13 @@ class Page1Fragment : Fragment() {
 
         val btnStart = Button(context).apply {
             text = "▶ 开始录屏识别"
-            setOnClickListener { (activity as MainActivity).startOCR() }
+            setOnClickListener { try { (activity as MainActivity).startOCR() }
         }
         root.addView(btnStart)
 
         val btnStop = Button(context).apply {
             text = "⏹ 停止并清空"
-            setOnClickListener { (activity as MainActivity).stopOCR() }
+            setOnClickListener { try { (activity as MainActivity).stopOCR() }
         }
         root.addView(btnStop)
 
