@@ -1,4 +1,5 @@
 package com.torchlight.auto
+
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
@@ -17,6 +18,7 @@ import java.util.*
 class Page3Fragment : Fragment() {
     private lateinit var tvTotal: TextView
     private lateinit var dropsContainer: LinearLayout
+    private var initialized = false
 
     override fun onCreateView(inf: LayoutInflater, c: ViewGroup?, s: Bundle?): View? {
         val root = ScrollView(context)
@@ -38,6 +40,7 @@ class Page3Fragment : Fragment() {
         main.addView(dropsContainer)
 
         root.addView(main)
+        initialized = true
         refresh()
         return root
     }
@@ -45,6 +48,7 @@ class Page3Fragment : Fragment() {
     override fun onResume() { super.onResume(); refresh() }
 
     fun refresh() {
+        if (!initialized || !::tvTotal.isInitialized) return
         tvTotal.text = "💰 今日总收入: ${DropRepository.totalFire} 火"
         dropsContainer.removeAllViews()
         if (DropRepository.todayDrops.isEmpty()) {
