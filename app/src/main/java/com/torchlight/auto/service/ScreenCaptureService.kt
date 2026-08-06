@@ -43,7 +43,7 @@ class ScreenCaptureService : Service() {
         const val CHANNEL_ID = "torchlight_ocr_channel"
         const val NOTIFICATION_ID = 1
 
-        val BLACKLIST = setOf(
+        val BLACKLIST: Set<String> = setOf(
             "点击", "确定", "取消", "返回", "设置", "背包", "地图",
             "任务", "技能", "商店", "退出", "开始", "暂停", "继续",
             "等级", "经验", "金币", "生命", "法力", "攻击", "防御"
@@ -53,21 +53,21 @@ class ScreenCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    private val handler = Handler(Looper.getMainLooper())
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val handler: Handler = Handler(Looper.getMainLooper())
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 
     private lateinit var db: AppDatabase
     private var priceMap: Map<String, Float> = emptyMap()
     private var enabledColorsMap: Map<String, String> = emptyMap()
 
     private data class Record(val cx: Int, val cy: Int, val time: Long)
-    private val recentRecords = ConcurrentHashMap<String, Record>()
+    private val recentRecords: ConcurrentHashMap<String, Record> = ConcurrentHashMap()
 
-    private var screenWidth = 0
-    private var screenHeight = 0
-    private var ocrInterval = 350L
-    private var recognitionCooldown = 500L
-    private var isRunning = false
+    private var screenWidth: Int = 0
+    private var screenHeight: Int = 0
+    private var ocrInterval: Long = 350L
+    private var recognitionCooldown: Long = 500L
+    private var isRunning: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -103,7 +103,7 @@ class ScreenCaptureService : Service() {
 
     private fun createNotification(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL_ID, "火炬助手录屏", NotificationManager.IMPORTANCE_LOW)
+            val ch: NotificationChannel = NotificationChannel(CHANNEL_ID, "火炬助手录屏", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch)
         }
         val pi: PendingIntent = PendingIntent.getActivity(
@@ -141,7 +141,7 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private val captureRunnable = Runnable {
+    private val captureRunnable: Runnable = Runnable {
         if (!isRunning) return@Runnable
         captureOnce()
         handler.postDelayed(captureRunnable, ocrInterval)
@@ -220,7 +220,8 @@ class ScreenCaptureService : Service() {
                 val raw: String = line.text.trim()
                 if (raw.isEmpty()) continue
 
-                if (BLACKLIST.any { word: String -> raw.contains(word) }) continue
+                val hit: Boolean = BLACKLIST.any { word: String -> raw.contains(word) }
+                if (hit) continue
 
                 val itemName: String = priceMap.keys.find { key: String -> raw.contains(key) } ?: continue
                 val price: Float = priceMap[itemName] ?: continue
@@ -246,14 +247,17 @@ class ScreenCaptureService : Service() {
         }
 
         if (names.isNotEmpty()) {
-            sendBroadcast(Intent("com.torchlight.auto.DROP_DETECTED").apply {
-                putExtra("names", names.toTypedArray())
-                putExtra("prices", prices.toFloatArray())
-            })
+            val intent: Intent = Intent("com.torchlight.auto.DROP_DETECTED")
+            intent.putExtra("names", names.toTypedArray())
+            intent.putExtra("prices", prices.toFloatArray())
+            sendBroadcast(intent)
         }
 
-        val expired: Map<String, Record> = recentRecords.filterValues { record: Record -> now - record.time > recognitionCooldown * 3 }
-        expired.keys.forEach { key: String -> recentRecords.remove(key) }
+        // 清理过期记录：用普通 for 循环代替 forEach 避免递归类型推断
+        val expired: List<String> = recentRecords.filterValues { record: Record -> now - record.time > recognitionCooldown * 3 }.keys.toList()
+        for (key: String in expired) {
+            recentRecords.remove(key)
+        }
     }
 
     private fun detectColor(bitmap: Bitmap, box: Rect): String {
