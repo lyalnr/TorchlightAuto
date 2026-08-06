@@ -28,5 +28,6 @@
             android:name=".service.ScreenCaptureService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
+        <activity android:name=".RegionSelectActivity" android:theme="@style/Theme.Material3.Dark.NoActionBar" android:screenOrientation="portrait"/>
     </application>
 </manifest>

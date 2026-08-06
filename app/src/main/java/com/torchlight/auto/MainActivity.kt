@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.torchlight.auto.util.CrashLogger.init(this)
         super.onCreate(savedInstanceState)
         checkDayReset()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
