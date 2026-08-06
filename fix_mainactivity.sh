@@ -1,3 +1,13 @@
+#!/bin/bash
+set -e
+cd ~/TorchlightAuto || { echo "❌ 先 cd 到项目根目录"; exit 1; }
+echo "🔧 修复 MainActivity.kt 语法错误..."
+
+# 1. 修复 AndroidManifest.xml namespace 警告
+sed -i 's/ package="com.torchlight.auto"//' app/src/main/AndroidManifest.xml
+
+# 2. 重写 MainActivity.kt
+cat > app/src/main/java/com/torchlight/auto/MainActivity.kt << 'KOTLIN_EOF'
 package com.torchlight.auto
 
 import android.Manifest
@@ -171,3 +181,10 @@ class MainActivity : AppCompatActivity() {
         override fun createFragment(position: Int) = fragments[position]
     }
 }
+KOTLIN_EOF
+
+# 3. 清理临时文件
+rm -f setup_torchlight.sh
+
+echo "✅ 修复完成！"
+echo "下一步：git add . && git commit -m "fix: MainActivity语法错误" && git push"
