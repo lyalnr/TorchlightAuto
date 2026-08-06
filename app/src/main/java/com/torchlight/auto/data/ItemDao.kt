@@ -13,3 +13,6 @@ interface ItemDao {
     @Update
     fun update(item: ItemEntity)
 }
+
+    @Query("SELECT * FROM price_table WHERE enabled = 1 ORDER BY id DESC")
+    fun getAllEnabled(): List<ItemEntity>

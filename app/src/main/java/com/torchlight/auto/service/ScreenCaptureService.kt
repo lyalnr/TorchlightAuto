@@ -28,6 +28,7 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.torchlight.auto.MainActivity
 import com.torchlight.auto.R
 import com.torchlight.auto.data.AppDatabase
+import com.torchlight.auto.data.ItemEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,15 +71,15 @@ class ScreenCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        db = AppDatabase.getInstance(this)
+        db = AppDatabase.getDatabase(this)
         refreshPriceTable()
     }
 
     private fun refreshPriceTable() {
         scope.launch {
-            val items = db.itemDao().getAllEnabled()
-            priceMap = items.associate { it.name to it.price }
-            enabledColorsMap = items.associate { it.name to it.enabledColors }
+            val items: List<ItemEntity> = db.itemDao().getAllEnabled()
+            priceMap = items.associate { item: ItemEntity -> item.name to item.price }
+            enabledColorsMap = items.associate { item: ItemEntity -> item.name to item.enabledColors }
         }
     }
 
@@ -87,11 +88,11 @@ class ScreenCaptureService : Service() {
             startForeground(NOTIFICATION_ID, createNotification())
         }
 
-        val resultCode = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
-        val data = intent?.getParcelableExtra<Intent>("data")
+        val resultCode: Int = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
+        val data: Intent? = intent?.getParcelableExtra("data")
 
         if (resultCode == Activity.RESULT_OK && data != null) {
-            val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val mgr: MediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mgr.getMediaProjection(resultCode, data)
             startCapture()
         } else {
@@ -105,15 +106,14 @@ class ScreenCaptureService : Service() {
             val ch = NotificationChannel(CHANNEL_ID, "火炬助手录屏", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch)
         }
-        val pi = PendingIntent.getActivity(
+        val pi: PendingIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("火炬助手")
             .setContentText("正在监控掉落...")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .set(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentIntent(pi)
             .build()
     }
@@ -129,7 +129,7 @@ class ScreenCaptureService : Service() {
 
         imageReader = ImageReader.newInstance(screenWidth, screenHeight, android.graphics.PixelFormat.RGBA_8888, 2)
 
-        mediaProjection?.let { mp ->
+        mediaProjection?.let { mp: MediaProjection ->
             virtualDisplay = mp.createVirtualDisplay(
                 "ScreenCapture",
                 screenWidth, screenHeight, dm.densityDpi,
@@ -148,7 +148,7 @@ class ScreenCaptureService : Service() {
     }
 
     private fun captureOnce() {
-        val image = try {
+        val image: Image? = try {
             imageReader?.acquireLatestImage()
         } catch (e: Exception) {
             Log.e(TAG, "acquireLatestImage failed", e)
@@ -157,20 +157,20 @@ class ScreenCaptureService : Service() {
         if (image == null) return
 
         try {
-            val bitmap = imageToBitmap(image) ?: return
+            val bitmap: Bitmap = imageToBitmap(image) ?: return
 
             val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
-            val cropL = prefs.getFloat("cropL", 0f)
-            val cropT = prefs.getFloat("cropT", 0f)
-            val cropR = prefs.getFloat("cropR", 1f)
-            val cropB = prefs.getFloat("cropB", 1f)
+            val cropL: Float = prefs.getFloat("cropL", 0f)
+            val cropT: Float = prefs.getFloat("cropT", 0f)
+            val cropR: Float = prefs.getFloat("cropR", 1f)
+            val cropB: Float = prefs.getFloat("cropB", 1f)
 
-            val left = (bitmap.width * cropL).toInt().coerceIn(0, bitmap.width)
-            val top = (bitmap.height * cropT).toInt().coerceIn(0, bitmap.height)
-            val right = (bitmap.width * cropR).toInt().coerceIn(left, bitmap.width)
-            val bottom = (bitmap.height * cropB).toInt().coerceIn(top, bitmap.height)
+            val left: Int = (bitmap.width * cropL).toInt().coerceIn(0, bitmap.width)
+            val top: Int = (bitmap.height * cropT).toInt().coerceIn(0, bitmap.height)
+            val right: Int = (bitmap.width * cropR).toInt().coerceIn(left, bitmap.width)
+            val bottom: Int = (bitmap.height * cropB).toInt().coerceIn(top, bitmap.height)
 
-            val target = if (right - left > 10 && bottom - top > 10) {
+            val target: Bitmap = if (right - left > 10 && bottom - top > 10) {
                 Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
             } else {
                 bitmap
@@ -188,13 +188,13 @@ class ScreenCaptureService : Service() {
     }
 
     private fun imageToBitmap(image: Image): Bitmap? {
-        val w = image.width
-        val h = image.height
+        val w: Int = image.width
+        val h: Int = image.height
         val plane = image.planes[0]
         val buffer: ByteBuffer = plane.buffer
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
-        val rowPadding = rowStride - pixelStride * w
+        val pixelStride: Int = plane.pixelStride
+        val rowStride: Int = plane.rowStride
+        val rowPadding: Int = rowStride - pixelStride * w
 
         val bitmap = Bitmap.createBitmap(w + rowPadding / pixelStride, h, Bitmap.Config.ARGB_8888)
         bitmap.copyPixelsFromBuffer(buffer)
@@ -202,40 +202,40 @@ class ScreenCaptureService : Service() {
     }
 
     private fun runOcr(bitmap: Bitmap) {
-        val input = InputImage.fromBitmap(bitmap, 0)
+        val input: InputImage = InputImage.fromBitmap(bitmap, 0)
         val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
 
         recognizer.process(input)
-            .addOnSuccessListener { result -> processOcrResult(result, bitmap) }
-            .addOnFailureListener { e -> Log.e(TAG, "OCR failed", e) }
+            .addOnSuccessListener { result: com.google.mlkit.vision.text.Text -> processOcrResult(result, bitmap) }
+            .addOnFailureListener { e: Exception -> Log.e(TAG, "OCR failed", e) }
     }
 
     private fun processOcrResult(visionText: com.google.mlkit.vision.text.Text, bitmap: Bitmap) {
-        val now = System.currentTimeMillis()
-        val names = mutableListOf<String>()
-        val prices = mutableListOf<Float>()
+        val now: Long = System.currentTimeMillis()
+        val names: MutableList<String> = mutableListOf()
+        val prices: MutableList<Float> = mutableListOf()
 
         for (block in visionText.textBlocks) {
             for (line in block.lines) {
-                val raw = line.text.trim()
+                val raw: String = line.text.trim()
                 if (raw.isEmpty()) continue
 
-                if (BLACKLIST.any { raw.contains(it) }) continue
+                if (BLACKLIST.any { word: String -> raw.contains(word) }) continue
 
-                val itemName = priceMap.keys.find { raw.contains(it) } ?: continue
-                val price = priceMap[itemName] ?: continue
-                val allowedColors = enabledColorsMap[itemName] ?: "红色,金色,紫色,蓝色"
+                val itemName: String = priceMap.keys.find { key: String -> raw.contains(key) } ?: continue
+                val price: Float = priceMap[itemName] ?: continue
+                val allowedColors: String = enabledColorsMap[itemName] ?: "红色,金色,紫色,蓝色"
 
-                val box = line.boundingBox ?: continue
-                val color = detectColor(bitmap, box)
+                val box: Rect = line.boundingBox ?: continue
+                val color: String = detectColor(bitmap, box)
                 if (!allowedColors.contains(color)) continue
 
-                val cx = (box.left + box.right) / 2
-                val cy = (box.top + box.bottom) / 2
-                val key = "${itemName}_$color"
-                val last = recentRecords[key]
+                val cx: Int = (box.left + box.right) / 2
+                val cy: Int = (box.top + box.bottom) / 2
+                val key: String = "${itemName}_$color"
+                val last: Record? = recentRecords[key]
                 if (last != null) {
-                    val dist = hypot((cx - last.cx).toDouble(), (cy - last.cy).toDouble())
+                    val dist: Double = hypot((cx - last.cx).toDouble(), (cy - last.cy).toDouble())
                     if (dist < 80 && (now - last.time) < recognitionCooldown) continue
                 }
                 recentRecords[key] = Record(cx, cy, now)
@@ -252,17 +252,17 @@ class ScreenCaptureService : Service() {
             })
         }
 
-        val expired = recentRecords.filterValues { now - it.time > recognitionCooldown * 3 }
-        expired.keys.forEach { recentRecords.remove(it) }
+        val expired: Map<String, Record> = recentRecords.filterValues { record: Record -> now - record.time > recognitionCooldown * 3 }
+        expired.keys.forEach { key: String -> recentRecords.remove(key) }
     }
 
     private fun detectColor(bitmap: Bitmap, box: Rect): String {
-        val cx = ((box.left + box.right) / 2).coerceIn(0, bitmap.width - 1)
-        val cy = ((box.top + box.bottom) / 2).coerceIn(0, bitmap.height - 1)
-        val pixel = bitmap.getPixel(cx, cy)
-        val r = android.graphics.Color.red(pixel)
-        val g = android.graphics.Color.green(pixel)
-        val b = android.graphics.Color.blue(pixel)
+        val cx: Int = ((box.left + box.right) / 2).coerceIn(0, bitmap.width - 1)
+        val cy: Int = ((box.top + box.bottom) / 2).coerceIn(0, bitmap.height - 1)
+        val pixel: Int = bitmap.getPixel(cx, cy)
+        val r: Int = android.graphics.Color.red(pixel)
+        val g: Int = android.graphics.Color.green(pixel)
+        val b: Int = android.graphics.Color.blue(pixel)
 
         return when {
             r > 180 && g < 100 && b < 100 -> "红色"
