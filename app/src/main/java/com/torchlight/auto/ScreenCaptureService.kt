@@ -1,5 +1,4 @@
 package com.torchlight.auto
-
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,6 +6,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -23,117 +23,71 @@ import androidx.core.app.NotificationCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.torchlight.auto.data.AppDatabase
+import com.torchlight.auto.data.DropRepository
+import com.torchlight.auto.data.ItemEntity
 import java.nio.ByteBuffer
 
 class ScreenCaptureService : Service() {
-    private var mediaProjection: MediaProjection? = null
+    private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
-    private var screenWidth = 0
-    private var screenHeight = 0
-    private var density = 0
-
-    // 识别区域（百分比 0.0~1.0）
-    var cropLeft = 0.55f
-    var cropTop = 0.08f
-    var cropRight = 0.95f
-    var cropBottom = 0.42f
+    private var w = 0; private var h = 0; private var density = 0
+    var cropL = 0.55f; var cropT = 0.08f; var cropR = 0.95f; var cropB = 0.42f
 
     companion object {
-        private const val CHANNEL_ID = "ocr_channel"
-        private const val NOTIFICATION_ID = 1002
-        const val ACTION_OCR_RESULT = "com.torchlight.auto.OCR_RESULT"
+        const val ACTION_RESULT = "com.torchlight.auto.OCR_RESULT"
         const val ACTION_DEBUG = "com.torchlight.auto.OCR_DEBUG"
-        const val ACTION_PREVIEW = "com.torchlight.auto.OCR_PREVIEW"
-        const val EXTRA_TEXT = "text"
-        const val EXTRA_BITMAP = "bitmap"
-
-        val WHITELIST = listOf(
-            "异界回响", "能量核心", "猫眼石", "破空", "传奇", "稀有", "史诗",
-            "通货", "装备", "武器", "护甲", "饰品", "吊坠", "戒指", "腰带",
-            "头盔", "手套", "靴子", "法杖", "弓箭", "长剑", "盾牌"
-        )
+        const val EXTRA_NAME = "name"
+        const val EXTRA_PRICE = "price"
+        const val EXTRA_COLOR = "color"
     }
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification("OCR 监控准备中..."))
+        createChannel()
+        startForeground(1002, createNotification("OCR准备中..."))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (running) return START_STICKY
         running = true
-
-        // 读取区域参数
         intent?.let {
-            cropLeft = it.getFloatExtra("left", 0.55f)
-            cropTop = it.getFloatExtra("top", 0.08f)
-            cropRight = it.getFloatExtra("right", 0.95f)
-            cropBottom = it.getFloatExtra("bottom", 0.42f)
+            cropL = it.getFloatExtra("left", 0.55f); cropT = it.getFloatExtra("top", 0.08f)
+            cropR = it.getFloatExtra("right", 0.95f); cropB = it.getFloatExtra("bottom", 0.42f)
         }
-
-        val resultCode = intent?.getIntExtra("resultCode", -1) ?: -1
+        val rc = intent?.getIntExtra("resultCode", -1) ?: -1
         val data = intent?.getParcelableExtra<Intent>("data")
-        if (resultCode == -1 || data == null) {
-            sendDebug("❌ 录屏权限数据无效")
-            stopSelf()
-            return START_STICKY
-        }
-
-        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-
-        if (mediaProjection == null) {
-            sendDebug("❌ MediaProjection 获取失败")
-            stopSelf()
-            return START_STICKY
-        }
-
+        if (rc == -1 || data == null) { sendDebug("❌ 录屏数据无效"); stopSelf(); return START_STICKY }
+        val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        projection = mgr.getMediaProjection(rc, data)
+        if (projection == null) { sendDebug("❌ MediaProjection失败"); stopSelf(); return START_STICKY }
         setupCapture()
         return START_STICKY
     }
 
     private fun setupCapture() {
-        val display = (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
-        val metrics = android.util.DisplayMetrics()
-        display.getRealMetrics(metrics)
-
-        screenWidth = metrics.widthPixels
-        screenHeight = metrics.heightPixels
-        density = metrics.densityDpi
-
-        // K50 Pro 2K屏优化：如果分辨率太高，降采样以提升OCR速度
-        val maxDim = 2560
-        var w = screenWidth
-        var h = screenHeight
-        if (w > maxDim || h > maxDim) {
-            val scale = maxDim.toFloat() / maxOf(w, h)
-            w = (w * scale).toInt()
-            h = (h * scale).toInt()
+        val dm = (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
+        val m = android.util.DisplayMetrics(); dm.getRealMetrics(m)
+        w = m.widthPixels; h = m.heightPixels; density = m.densityDpi
+        var rw = w; var rh = h
+        if (rw > 2560 || rh > 2560) {
+            val s = 2560f / maxOf(rw, rh); rw = (rw * s).toInt(); rh = (rh * s).toInt()
         }
-
-        imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "ScreenCapture", w, h, density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface, null, null
-        )
-
-        sendDebug("✅ 录屏已启动 ${screenWidth}x$screenHeight → ${w}x$h")
-        sendDebug("🔍 识别区域: L=${(cropLeft*100).toInt()}% T=${(cropTop*100).toInt()}% R=${(cropRight*100).toInt()}% B=${(cropBottom*100).toInt()}%")
-
-        // 每 400ms 截一次图
-        handler.postDelayed(captureRunnable, 800)
+        imageReader = ImageReader.newInstance(rw, rh, PixelFormat.RGBA_8888, 2)
+        virtualDisplay = projection?.createVirtualDisplay("Cap", rw, rh, density,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader?.surface, null, null)
+        sendDebug("✅ 录屏启动 ${w}x$h → ${rw}x$rh")
+        handler.postDelayed(captureRunnable, 600)
     }
 
     private val captureRunnable = object : Runnable {
         override fun run() {
             if (!running) return
             captureAndOCR()
-            handler.postDelayed(this, 400)
+            handler.postDelayed(this, 350)
         }
     }
 
@@ -141,112 +95,113 @@ class ScreenCaptureService : Service() {
         val reader = imageReader ?: return
         var image: Image? = null
         try {
-            image = reader.acquireLatestImage()
-            if (image == null) return
-
-            val buffer: ByteBuffer = image.planes[0].buffer
-            val pixelStride = image.planes[0].pixelStride
-            val rowStride = image.planes[0].rowStride
-            val w = image.width
-            val h = image.height
-            val offset = (rowStride - pixelStride * w) / pixelStride
-
-            val bitmap = Bitmap.createBitmap(w + offset, h, Bitmap.Config.ARGB_8888)
-            bitmap.copyPixelsFromBuffer(buffer)
-
-            // 裁剪目标区域
-            val cropX = (w * cropLeft).toInt()
-            val cropY = (h * cropTop).toInt()
-            val cropW = ((w * cropRight).toInt() - cropX).coerceAtLeast(100)
-            val cropH = ((h * cropBottom).toInt() - cropY).coerceAtLeast(50)
-
-            if (cropW <= 0 || cropH <= 0) {
-                image.close()
-                return
-            }
-
-            val cropped = Bitmap.createBitmap(bitmap, cropX, cropY, cropW, cropH)
-            bitmap.recycle()
-
-            // 发送预览图
-            sendPreview(cropped)
-
-            // OCR
+            image = reader.acquireLatestImage() ?: return
+            val buf: ByteBuffer = image.planes[0].buffer
+            val ps = image.planes[0].pixelStride
+            val rs = image.planes[0].rowStride
+            val iw = image.width; val ih = image.height
+            val off = (rs - ps * iw) / ps
+            val bmp = Bitmap.createBitmap(iw + off, ih, Bitmap.Config.ARGB_8888)
+            bmp.copyPixelsFromBuffer(buf)
+            val cx = (iw * cropL).toInt(); val cy = (ih * cropT).toInt()
+            val cw = ((iw * cropR).toInt() - cx).coerceAtLeast(80)
+            val ch = ((ih * cropB).toInt() - cy).coerceAtLeast(40)
+            if (cw <= 0 || ch <= 0) { bmp.recycle(); return }
+            val cropped = Bitmap.createBitmap(bmp, cx, cy, cw, ch)
+            bmp.recycle()
             doOCR(cropped)
-
         } catch (e: Exception) {
-            Log.e("ScreenCapture", "capture error", e)
+            Log.e("OCR", "cap", e)
         } finally {
             image?.close()
         }
     }
 
     private fun doOCR(bitmap: Bitmap) {
-        val inputImage = InputImage.fromBitmap(bitmap, 0)
-        val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-
-        recognizer.process(inputImage)
+        val input = InputImage.fromBitmap(bitmap, 0)
+        TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+            .process(input)
             .addOnSuccessListener { result ->
-                val fullText = result.text.trim()
-                if (fullText.isEmpty()) return@addOnSuccessListener
-
-                // 检查是否包含白名单关键词
-                val matched = WHITELIST.filter { fullText.contains(it) }
-                if (matched.isNotEmpty()) {
-                    sendDebug("🎯 OCR识别: $fullText")
-                    sendResult(fullText)
+                val blocks = result.textBlocks
+                for (block in blocks) {
+                    val text = block.text.trim()
+                    if (text.isEmpty()) continue
+                    // 颜色检测：采样文字区域平均颜色
+                    val color = detectColor(bitmap, block.boundingBox)
+                    processText(text, color)
                 }
+                bitmap.recycle()
             }
-            .addOnFailureListener { e ->
-                Log.e("ScreenCapture", "OCR failed", e)
-            }
+            .addOnFailureListener { bitmap.recycle() }
     }
 
-    private fun sendResult(text: String) {
-        sendBroadcast(Intent(ACTION_OCR_RESULT).putExtra(EXTRA_TEXT, text))
-    }
-
-    private fun sendDebug(msg: String) {
-        Log.d("ScreenCapture", msg)
-        sendBroadcast(Intent(ACTION_DEBUG).putExtra("msg", msg))
-    }
-
-    private fun sendPreview(bitmap: Bitmap) {
-        // 压缩预览图发送给 Activity 显示
-        try {
-            val scaled = Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true)
-            val intent = Intent(ACTION_PREVIEW)
-            // Bitmap 不能直接放 Intent，这里用全局变量或 EventBus 更好
-            // 简化为发送调试信息
-            sendBroadcast(Intent(ACTION_DEBUG).putExtra("msg", "[预览] 截图 ${bitmap.width}x${bitmap.height}"))
-            scaled.recycle()
-        } catch (_: Exception) {}
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "OCR录屏服务", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+    private fun detectColor(bitmap: Bitmap, box: android.graphics.Rect?): String {
+        if (box == null) return "未知"
+        val cx = (box.left + box.right) / 2
+        val cy = (box.top + box.bottom) / 2
+        if (cx < 0 || cy < 0 || cx >= bitmap.width || cy >= bitmap.height) return "未知"
+        val px = bitmap.getPixel(cx, cy)
+        val r = Color.red(px); val g = Color.green(px); val b = Color.blue(px)
+        // 颜色阈值
+        return when {
+            r > 200 && g < 80 && b < 80 -> "红色"
+            r > 200 && g > 180 && b < 80 -> "金色"
+            r > 180 && g < 100 && b > 180 -> "紫色"
+            r < 80 && g < 120 && b > 180 -> "蓝色"
+            r > 200 && g > 200 && b > 200 -> "白色"
+            else -> "未知"
         }
     }
 
-    private fun createNotification(text: String): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("火炬之光掉落识别")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .setOngoing(true)
-            .build()
+    private fun processText(text: String, color: String) {
+        val dao = AppDatabase.getDatabase(this).itemDao()
+        val allItems = dao.getAll().filter { it.enabled }
+        // 匹配：包含关系，优先长名称
+        val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
+        if (matched != null) {
+            // 颜色过滤
+            val colorMatch = matched.color == "未知" || matched.color == color || color == "未知"
+            if (colorMatch) {
+                DropRepository.addDrop(matched.name, matched.price, color)
+                sendResult(matched.name, matched.price, color)
+                sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
+            }
+        } else {
+            // 新物品，自动加入价格表（价格未知）
+            val newItem = ItemEntity(name = text, price = -1f, color = color, enabled = true)
+            dao.insert(newItem)
+            DropRepository.addDrop(text, -1f, color)
+            sendResult(text, -1f, color)
+            sendDebug("🆕 新物品: $text ($color) - 请在价格表设置价格")
+        }
     }
+
+    private fun sendResult(name: String, price: Float, color: String) {
+        sendBroadcast(Intent(ACTION_RESULT).apply {
+            putExtra(EXTRA_NAME, name); putExtra(EXTRA_PRICE, price); putExtra(EXTRA_COLOR, color)
+        })
+    }
+
+    private fun sendDebug(msg: String) {
+        Log.d("OCR", msg)
+        sendBroadcast(Intent(ACTION_DEBUG).putExtra("msg", msg))
+    }
+
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+                NotificationChannel("ocr", "OCR录屏", NotificationManager.IMPORTANCE_LOW))
+        }
+    }
+
+    private fun createNotification(text: String) = NotificationCompat.Builder(this, "ocr")
+        .setContentTitle("火炬之光掉落识别").setContentText(text)
+        .setSmallIcon(android.R.drawable.ic_menu_gallery).setOngoing(true).build()
 
     override fun onDestroy() {
-        running = false
-        handler.removeCallbacks(captureRunnable)
-        virtualDisplay?.release()
-        imageReader?.close()
-        mediaProjection?.stop()
+        running = false; handler.removeCallbacks(captureRunnable)
+        virtualDisplay?.release(); imageReader?.close(); projection?.stop()
         super.onDestroy()
     }
-
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(i: Intent?): IBinder? = null
 }
