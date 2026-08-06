@@ -141,10 +141,12 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private val captureRunnable: Runnable = Runnable {
-        if (!isRunning) return@Runnable
-        captureOnce()
-        handler.postDelayed(captureRunnable, ocrInterval)
+    private val captureRunnable: Runnable = object : Runnable {
+        override fun run() {
+            if (!isRunning) return
+            captureOnce()
+            handler.postDelayed(this, ocrInterval)
+        }
     }
 
     private fun captureOnce() {
@@ -253,7 +255,6 @@ class ScreenCaptureService : Service() {
             sendBroadcast(intent)
         }
 
-        // 清理过期记录：用普通 for 循环代替 forEach 避免递归类型推断
         val expired: List<String> = recentRecords.filterValues { record: Record -> now - record.time > recognitionCooldown * 3 }.keys.toList()
         for (key: String in expired) {
             recentRecords.remove(key)
