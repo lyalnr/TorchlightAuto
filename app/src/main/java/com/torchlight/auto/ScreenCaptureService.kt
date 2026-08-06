@@ -74,7 +74,8 @@ class ScreenCaptureService : Service() {
         w = m.widthPixels; h = m.heightPixels; density = m.densityDpi
         var rw = w; var rh = h
         if (rw > 2560 || rh > 2560) {
-            val s = 2560f / maxOf(rw, rh); rw = (rw * s).toInt(); rh = (rh * s).toInt()
+            val maxPx = if (rw > rh) rw else rh
+            val s = 2560f / maxPx; rw = (rw * s).toInt(); rh = (rh * s).toInt()
         }
         imageReader = ImageReader.newInstance(rw, rh, PixelFormat.RGBA_8888, 2)
         virtualDisplay = projection?.createVirtualDisplay("Cap", rw, rh, density,
@@ -87,7 +88,9 @@ class ScreenCaptureService : Service() {
         override fun run() {
             if (!running) return
             captureAndOCR()
-            handler.postDelayed(this, 350)
+            val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
+            val interval = prefs.getInt("ocr_interval", 350).toLong()
+            handler.postDelayed(this, interval)
         }
     }
 
@@ -126,7 +129,6 @@ class ScreenCaptureService : Service() {
                 for (block in blocks) {
                     val text = block.text.trim()
                     if (text.isEmpty()) continue
-                    // 颜色检测：采样文字区域平均颜色
                     val color = detectColor(bitmap, block.boundingBox)
                     processText(text, color)
                 }
@@ -142,7 +144,6 @@ class ScreenCaptureService : Service() {
         if (cx < 0 || cy < 0 || cx >= bitmap.width || cy >= bitmap.height) return "未知"
         val px = bitmap.getPixel(cx, cy)
         val r = Color.red(px); val g = Color.green(px); val b = Color.blue(px)
-        // 颜色阈值
         return when {
             r > 200 && g < 80 && b < 80 -> "红色"
             r > 200 && g > 180 && b < 80 -> "金色"
@@ -154,12 +155,16 @@ class ScreenCaptureService : Service() {
     }
 
     private fun processText(text: String, color: String) {
+        val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
+        val enabledColors = prefs.getStringSet("enabled_colors", setOf("红色","金色","紫色","蓝色")) ?: setOf("红色","金色","紫色","蓝色")
+        if (color != "未知" && color !in enabledColors) {
+            sendDebug("🚫 颜色过滤跳过: $text ($color)")
+            return
+        }
         val dao = AppDatabase.getDatabase(this).itemDao()
         val allItems = dao.getAll().filter { it.enabled }
-        // 匹配：包含关系，优先长名称
         val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
         if (matched != null) {
-            // 颜色过滤
             val colorMatch = matched.color == "未知" || matched.color == color || color == "未知"
             if (colorMatch) {
                 DropRepository.addDrop(matched.name, matched.price, color)
@@ -167,7 +172,6 @@ class ScreenCaptureService : Service() {
                 sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
             }
         } else {
-            // 新物品，自动加入价格表（价格未知）
             val newItem = ItemEntity(name = text, price = -1f, color = color, enabled = true)
             dao.insert(newItem)
             DropRepository.addDrop(text, -1f, color)

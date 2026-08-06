@@ -10,9 +10,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -22,6 +19,8 @@ import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import com.torchlight.auto.data.*
 import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
     private lateinit var viewPager: ViewPager2
@@ -34,6 +33,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        checkDayReset()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         tabLayout = TabLayout(this)
         viewPager = ViewPager2(this)
@@ -52,7 +52,18 @@ class MainActivity : AppCompatActivity() {
         DropRepository.listeners.add { runOnUiThread {
             floatMgr.update()
             (pagerAdapter.fragments[2] as? Page3Fragment)?.refresh()
-        }}
+        }}}
+    }
+
+    private fun checkDayReset() {
+        val prefs = getSharedPreferences("app_data", Context.MODE_PRIVATE)
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val today = sdf.format(Date())
+        val last = prefs.getString("last_active_date", "")
+        if (last != today) {
+            DropRepository.clear()
+            prefs.edit().putString("last_active_date", today).apply()
+        }
     }
 
     private fun checkPermissions() {
