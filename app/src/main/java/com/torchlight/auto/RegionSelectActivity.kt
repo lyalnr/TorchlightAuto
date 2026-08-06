@@ -3,107 +3,93 @@ package com.torchlight.auto
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
+import android.graphics.*
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
-import android.widget.Button
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
-import android.widget.Toast
+import android.view.*
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 
 class RegionSelectActivity : AppCompatActivity() {
 
     private lateinit var overlayView: OverlayView
+    private lateinit var btnPick: Button
+    private lateinit var tvInfo: TextView
     private var screenshotBitmap: Bitmap? = null
-    private var startX = 0f
-    private var startY = 0f
-    private var endX = 0f
-    private var endY = 0f
+    private var startX = 0f; private var startY = 0f
+    private var endX = 0f; private var endY = 0f
     private var drawing = false
+    private var imgDrawX = 0f; private var imgDrawY = 0f
+    private var imgDrawW = 0f; private var imgDrawH = 0f
 
-    private var imgDrawX = 0f
-    private var imgDrawY = 0f
-    private var imgDrawW = 0f
-    private var imgDrawH = 0f
-
-    companion object {
-        const val PICK_IMAGE = 1001
-    }
+    companion object { const val PICK_IMAGE = 1001 }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.setBackgroundDrawableResource(android.R.color.black)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            window.statusBarColor = Color.BLACK
-            window.navigationBarColor = Color.BLACK
+        // Android 14 真正全屏（隐藏状态栏+导航栏）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.let { controller ->
+                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
         }
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            or View.SYSTEM_UI_FLAG_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-        )
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-        }
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
 
         overlayView = OverlayView(this)
         root.addView(overlayView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
-        val tvInfo = TextView(this).apply {
-            text = "📸 请上传截图，然后在上面框选识别区域\n👆 手指按住拖动"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setShadowLayer(6f, 0f, 0f, Color.BLACK)
-            setPadding(40, 20, 40, 20)
+        tvInfo = TextView(this).apply {
+            text = "📸 上传截图后框选识别区域"
+            textSize = 12f; setTextColor(Color.WHITE)
+            setShadowLayer(8f, 0f, 0f, Color.BLACK)
+            setPadding(30, 10, 30, 10)
+            setBackgroundColor(0x88000000.toInt())
         }
-        root.addView(tvInfo)
+        root.addView(tvInfo, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = 10; leftMargin = 10 })
 
-        val btnPick = Button(this).apply {
-            text = "📁 选择截图"
-            setPadding(40, 20, 40, 20)
+        btnPick = Button(this).apply {
+            text = "📁 选择截图"; textSize = 12f
+            setPadding(30, 10, 30, 10)
             setOnClickListener { pickImage() }
         }
-        val pickParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL; topMargin = 80 }
-        root.addView(btnPick, pickParams)
+        root.addView(btnPick, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = 10 })
 
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(40, 0, 40, 20)
+            setPadding(20, 8, 20, 8)
+            setBackgroundColor(0xCC000000.toInt())
         }
-        val btnParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = android.view.Gravity.BOTTOM }
-        root.addView(btnRow, btnParams)
+        root.addView(btnRow, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.BOTTOM })
 
         btnRow.addView(Button(this).apply {
-            text = "取消"
+            text = "取消"; textSize = 12f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener { finish() }
         })
-
         btnRow.addView(Button(this).apply {
-            text = "确认"
+            text = "确认"; textSize = 12f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener { saveAndExit() }
         })
@@ -112,8 +98,7 @@ class RegionSelectActivity : AppCompatActivity() {
     }
 
     private fun pickImage() {
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        startActivityForResult(intent, PICK_IMAGE)
+        startActivityForResult(Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI), PICK_IMAGE)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -127,33 +112,28 @@ class RegionSelectActivity : AppCompatActivity() {
                 if (bmp != null) {
                     screenshotBitmap = bmp
                     overlayView.setBitmap(bmp)
-                    Toast.makeText(this, "截图已加载，请框选区域", Toast.LENGTH_SHORT).show()
+                    btnPick.visibility = View.GONE
+                    tvInfo.text = "👆 手指按住拖动框选"
+                    Toast.makeText(this, "截图已加载", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(this, "加载图片失败: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "加载失败: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
     private fun saveAndExit() {
         if (!drawing || screenshotBitmap == null) {
-            Toast.makeText(this, "请先上传截图并框选区域", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "请先框选区域", Toast.LENGTH_SHORT).show()
             return
         }
-        if (imgDrawW <= 0 || imgDrawH <= 0) {
-            finish(); return
-        }
-
         val left = ((minOf(startX, endX) - imgDrawX) / imgDrawW).coerceIn(0f, 1f)
         val top = ((minOf(startY, endY) - imgDrawY) / imgDrawH).coerceIn(0f, 1f)
         val right = ((maxOf(startX, endX) - imgDrawX) / imgDrawW).coerceIn(0f, 1f)
         val bottom = ((maxOf(startY, endY) - imgDrawY) / imgDrawH).coerceIn(0f, 1f)
-
         getSharedPreferences("ocr_settings", Context.MODE_PRIVATE).edit().apply {
-            putFloat("cropL", left)
-            putFloat("cropT", top)
-            putFloat("cropR", right)
-            putFloat("cropB", bottom)
+            putFloat("cropL", left); putFloat("cropT", top)
+            putFloat("cropR", right); putFloat("cropB", bottom)
             apply()
         }
         Toast.makeText(this, "区域已保存", Toast.LENGTH_SHORT).show()
@@ -161,42 +141,19 @@ class RegionSelectActivity : AppCompatActivity() {
     }
 
     inner class OverlayView(ctx: Context) : View(ctx) {
-        private val paintRect = Paint().apply {
-            color = Color.parseColor("#00FF00")
-            style = Paint.Style.STROKE
-            strokeWidth = 6f
-        }
-        private val paintClear = Paint().apply {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-        }
-        private val paintDim = Paint().apply {
-            color = Color.parseColor("#AA000000")
-        }
+        private val paintRect = Paint().apply { color = Color.parseColor("#00FF00"); style = Paint.Style.STROKE; strokeWidth = 6f }
+        private val paintClear = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
+        private val paintDim = Paint().apply { color = Color.parseColor("#AA000000") }
         private var bitmap: Bitmap? = null
         private val bmpPaint = Paint()
-
         init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-
-        fun setBitmap(bmp: Bitmap) {
-            bitmap = bmp
-            invalidate()
-        }
+        fun setBitmap(bmp: Bitmap) { bitmap = bmp; invalidate() }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    startX = event.x; startY = event.y
-                    endX = event.x; endY = event.y
-                    drawing = true; invalidate()
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    endX = event.x; endY = event.y
-                    invalidate()
-                }
-                MotionEvent.ACTION_UP -> {
-                    endX = event.x; endY = event.y
-                    drawing = true; invalidate()
-                }
+                MotionEvent.ACTION_DOWN -> { startX = event.x; startY = event.y; endX = event.x; endY = event.y; drawing = true; invalidate() }
+                MotionEvent.ACTION_MOVE -> { endX = event.x; endY = event.y; invalidate() }
+                MotionEvent.ACTION_UP -> { endX = event.x; endY = event.y; drawing = true; invalidate() }
             }
             return true
         }
@@ -204,17 +161,11 @@ class RegionSelectActivity : AppCompatActivity() {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             bitmap?.let { bmp ->
-                val screenW = width.toFloat()
-                val screenH = height.toFloat()
-                val bmpW = bmp.width.toFloat()
-                val bmpH = bmp.height.toFloat()
-
+                val screenW = width.toFloat(); val screenH = height.toFloat()
+                val bmpW = bmp.width.toFloat(); val bmpH = bmp.height.toFloat()
                 val scale = minOf(screenW / bmpW, screenH / bmpH)
-                imgDrawW = bmpW * scale
-                imgDrawH = bmpH * scale
-                imgDrawX = (screenW - imgDrawW) / 2
-                imgDrawY = (screenH - imgDrawH) / 2
-
+                imgDrawW = bmpW * scale; imgDrawH = bmpH * scale
+                imgDrawX = (screenW - imgDrawW) / 2; imgDrawY = (screenH - imgDrawH) / 2
                 val matrix = Matrix()
                 matrix.postScale(scale, scale)
                 matrix.postTranslate(imgDrawX, imgDrawY)
