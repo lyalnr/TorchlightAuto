@@ -1,6 +1,5 @@
 package com.torchlight.auto
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -8,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.Image
@@ -20,6 +18,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.view.WindowManager
+import android.view.WindowMetrics
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -62,27 +62,58 @@ class ScreenCaptureService : Service() {
             cropR = it.getFloatExtra("right", 0.95f); cropB = it.getFloatExtra("bottom", 0.42f)
         }
         val rc = intent?.getIntExtra("resultCode", -1) ?: -1
-        val data = intent?.getParcelableExtra<Intent>("data")
-        if (rc == -1 || data == null) { sendDebug("❌ 录屏数据无效"); stopSelf(); return START_STICKY }
+
+        // Android 13+ 类型安全获取 Parcelable
+        val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra("data", Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra("data")
+        }
+
+        if (rc == -1 || data == null) {
+            sendDebug("❌ 录屏数据无效 rc=$rc data=${data != null}")
+            stopSelf()
+            return START_STICKY
+        }
+
         val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         projection = mgr.getMediaProjection(rc, data)
-        if (projection == null) { sendDebug("❌ MediaProjection失败"); stopSelf(); return START_STICKY }
+        if (projection == null) {
+            sendDebug("❌ MediaProjection失败")
+            stopSelf()
+            return START_STICKY
+        }
         setupCapture()
         return START_STICKY
     }
 
     private fun setupCapture() {
-        val dm = (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
-        val m = android.util.DisplayMetrics(); dm.getRealMetrics(m)
-        w = m.widthPixels; h = m.heightPixels; density = m.densityDpi
+        // Android 11+ 使用 WindowMetrics 代替已弃用的 defaultDisplay
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wm.currentWindowMetrics.bounds
+        } else {
+            @Suppress("DEPRECATION")
+            val dm = android.util.DisplayMetrics()
+            wm.defaultDisplay.getRealMetrics(dm)
+            android.graphics.Rect(0, 0, dm.widthPixels, dm.heightPixels)
+        }
+
+        w = bounds.width(); h = bounds.height()
+        density = resources.displayMetrics.densityDpi
+
         var rw = w; var rh = h
         if (rw > 2560 || rh > 2560) {
             val maxPx = if (rw > rh) rw else rh
-            val s = 2560f / maxPx; rw = (rw * s).toInt(); rh = (rh * s).toInt()
+            val s = 2560f / maxPx
+            rw = (rw * s).toInt(); rh = (rh * s).toInt()
         }
-        imageReader = ImageReader.newInstance(rw, rh, PixelFormat.RGBA_8888, 2)
+
+        imageReader = ImageReader.newInstance(rw, rh, android.graphics.ImageFormat.RGBA_8888, 2)
         virtualDisplay = projection?.createVirtualDisplay("Cap", rw, rh, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader?.surface, null, null)
+
         sendDebug("✅ 录屏启动 ${w}x$h → ${rw}x$rh")
         handler.postDelayed(captureRunnable, 600)
     }
@@ -117,7 +148,8 @@ class ScreenCaptureService : Service() {
             bmp.recycle()
             doOCR(cropped)
         } catch (e: Exception) {
-            Log.e("OCR", "cap", e)
+            Log.e("OCR", "capture error", e)
+            sendDebug("❌ 截图异常: ${e.message}")
         } finally {
             image?.close()
         }
@@ -137,7 +169,10 @@ class ScreenCaptureService : Service() {
                 }
                 bitmap.recycle()
             }
-            .addOnFailureListener { bitmap.recycle() }
+            .addOnFailureListener { e ->
+                bitmap.recycle()
+                sendDebug("❌ OCR失败: ${e.message}")
+            }
     }
 
     private fun detectColor(bitmap: Bitmap, box: android.graphics.Rect?): String {
@@ -166,30 +201,26 @@ class ScreenCaptureService : Service() {
         val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
 
         if (matched != null) {
-            // 冷却检查：同一物品N秒内不再重复计数
             val now = System.currentTimeMillis()
             val last = lastSeenTime[matched.name] ?: 0
-            if (now - last < cooldown) {
-                return
-            }
+            if (now - last < cooldown) return
             lastSeenTime[matched.name] = now
 
-            // 颜色检查
             val allowedColors = matched.enabledColors.split(",").toSet()
             if (color != "未知" && color !in allowedColors) {
-                sendDebug("🚫 [${matched.name}] 跳过颜色: $color (允许: ${matched.enabledColors})")
+                sendDebug("🚫 [${matched.name}] 跳过颜色: $color")
                 return
             }
 
             DropRepository.addDrop(matched.name, matched.price, color)
             sendResult(matched.name, matched.price, color)
-            sendDebug("🎯 ${matched.name}(${color}) x${DropRepository.todayDrops.find{it.name==matched.name}?.quantity ?: 1}")
+            sendDebug("🎯 ${matched.name}(${color})")
         } else {
             val newItem = ItemEntity(name = text, price = -1f, enabled = true)
             dao.insert(newItem)
             DropRepository.addDrop(text, -1f, color)
             sendResult(text, -1f, color)
-            sendDebug("🆕 新物品: $text ($color) - 请在价格表设置价格")
+            sendDebug("🆕 新物品: $text ($color)")
         }
     }
 
@@ -216,9 +247,13 @@ class ScreenCaptureService : Service() {
         .setSmallIcon(android.R.drawable.ic_menu_gallery).setOngoing(true).build()
 
     override fun onDestroy() {
-        running = false; handler.removeCallbacks(captureRunnable)
-        virtualDisplay?.release(); imageReader?.close(); projection?.stop()
+        running = false
+        handler.removeCallbacks(captureRunnable)
+        virtualDisplay?.release()
+        imageReader?.close()
+        projection?.stop()
         super.onDestroy()
     }
+
     override fun onBind(i: Intent?): IBinder? = null
 }
