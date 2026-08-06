@@ -4,11 +4,15 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.view.*
+import android.view.MotionEvent
+import android.view.View
+import android.view.Window
+import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 
@@ -29,25 +33,12 @@ class RegionSelectActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Android 14 真正全屏（隐藏状态栏+导航栏）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            )
-        }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 传统全屏方式（最兼容，不闪退）
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
 
@@ -63,7 +54,10 @@ class RegionSelectActivity : AppCompatActivity() {
         }
         root.addView(tvInfo, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; topMargin = 10; leftMargin = 10 })
+        ).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            topMargin = 10; leftMargin = 10
+        })
 
         btnPick = Button(this).apply {
             text = "📁 选择截图"; textSize = 12f
@@ -72,7 +66,10 @@ class RegionSelectActivity : AppCompatActivity() {
         }
         root.addView(btnPick, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = 10 })
+        ).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+            topMargin = 10
+        })
 
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -81,7 +78,7 @@ class RegionSelectActivity : AppCompatActivity() {
         }
         root.addView(btnRow, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply { gravity = Gravity.BOTTOM })
+        ).apply { gravity = android.view.Gravity.BOTTOM })
 
         btnRow.addView(Button(this).apply {
             text = "取消"; textSize = 12f
@@ -98,7 +95,10 @@ class RegionSelectActivity : AppCompatActivity() {
     }
 
     private fun pickImage() {
-        startActivityForResult(Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI), PICK_IMAGE)
+        startActivityForResult(
+            Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI),
+            PICK_IMAGE
+        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -141,19 +141,42 @@ class RegionSelectActivity : AppCompatActivity() {
     }
 
     inner class OverlayView(ctx: Context) : View(ctx) {
-        private val paintRect = Paint().apply { color = Color.parseColor("#00FF00"); style = Paint.Style.STROKE; strokeWidth = 6f }
-        private val paintClear = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-        private val paintDim = Paint().apply { color = Color.parseColor("#AA000000") }
+        private val paintRect = Paint().apply {
+            color = Color.parseColor("#00FF00")
+            style = Paint.Style.STROKE
+            strokeWidth = 6f
+        }
+        private val paintClear = Paint().apply {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        }
+        private val paintDim = Paint().apply {
+            color = Color.parseColor("#AA000000")
+        }
         private var bitmap: Bitmap? = null
         private val bmpPaint = Paint()
+
         init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-        fun setBitmap(bmp: Bitmap) { bitmap = bmp; invalidate() }
+
+        fun setBitmap(bmp: Bitmap) {
+            bitmap = bmp
+            invalidate()
+        }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> { startX = event.x; startY = event.y; endX = event.x; endY = event.y; drawing = true; invalidate() }
-                MotionEvent.ACTION_MOVE -> { endX = event.x; endY = event.y; invalidate() }
-                MotionEvent.ACTION_UP -> { endX = event.x; endY = event.y; drawing = true; invalidate() }
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.x; startY = event.y
+                    endX = event.x; endY = event.y
+                    drawing = true; invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    endX = event.x; endY = event.y
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP -> {
+                    endX = event.x; endY = event.y
+                    drawing = true; invalidate()
+                }
             }
             return true
         }
@@ -161,11 +184,17 @@ class RegionSelectActivity : AppCompatActivity() {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             bitmap?.let { bmp ->
-                val screenW = width.toFloat(); val screenH = height.toFloat()
-                val bmpW = bmp.width.toFloat(); val bmpH = bmp.height.toFloat()
+                val screenW = width.toFloat()
+                val screenH = height.toFloat()
+                val bmpW = bmp.width.toFloat()
+                val bmpH = bmp.height.toFloat()
+
                 val scale = minOf(screenW / bmpW, screenH / bmpH)
-                imgDrawW = bmpW * scale; imgDrawH = bmpH * scale
-                imgDrawX = (screenW - imgDrawW) / 2; imgDrawY = (screenH - imgDrawH) / 2
+                imgDrawW = bmpW * scale
+                imgDrawH = bmpH * scale
+                imgDrawX = (screenW - imgDrawW) / 2
+                imgDrawY = (screenH - imgDrawH) / 2
+
                 val matrix = Matrix()
                 matrix.postScale(scale, scale)
                 matrix.postTranslate(imgDrawX, imgDrawY)
