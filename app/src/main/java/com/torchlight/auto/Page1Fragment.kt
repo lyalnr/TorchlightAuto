@@ -34,7 +34,6 @@ class Page1Fragment : Fragment() {
             textSize = 18f
         })
 
-        // 截图间隔
         root.addView(TextView(context).apply {
             text = "截图间隔 (ms)"
             textSize = 13f
@@ -55,7 +54,6 @@ class Page1Fragment : Fragment() {
         root.addView(tvCap)
         root.addView(skCap)
 
-        // 识别冷却
         root.addView(TextView(context).apply {
             text = "\n识别冷却 (ms)\n同一物品识别后多久不再重复计数"
             textSize = 13f
@@ -76,7 +74,6 @@ class Page1Fragment : Fragment() {
         root.addView(tvCool)
         root.addView(skCool)
 
-        // 框选区域按钮
         root.addView(TextView(context).apply {
             text = "\n📐 识别区域："
             textSize = 13f
@@ -125,6 +122,19 @@ class Page1Fragment : Fragment() {
             }
         }
         root.addView(btnStop)
+
+        val btnUnlock = Button(context).apply {
+            text = "🔓 解锁悬浮窗"
+            setOnClickListener {
+                try {
+                    (activity as MainActivity).unlockFloatWindow()
+                    Toast.makeText(requireContext(), "悬浮窗已解锁，可拖动", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(), "解锁失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        root.addView(btnUnlock)
 
         root.addView(TextView(context).apply {
             text = "\n📋 日志："

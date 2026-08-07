@@ -155,6 +155,10 @@ class MainActivity : AppCompatActivity() {
         (pagerAdapter.fragments[2] as? Page3Fragment)?.refresh()
     }
 
+    fun unlockFloatWindow() {
+        floatMgr.unlock()
+    }
+
     fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }

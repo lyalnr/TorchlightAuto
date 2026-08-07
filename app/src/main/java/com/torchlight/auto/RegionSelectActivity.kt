@@ -4,8 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -123,20 +121,35 @@ class RegionSelectActivity : AppCompatActivity() {
 
     inner class OverlayView(ctx: Context) : View(ctx) {
         private val paintRect = Paint().apply {
-            color = Color.parseColor("#00FF00"); style = Paint.Style.STROKE; strokeWidth = 8f
+            color = Color.parseColor("#00FF00")
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
         }
-        private val paintClear = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-        private val paintDim = Paint().apply { color = Color.parseColor("#AA000000") }
+        private val paintDim = Paint().apply {
+            color = Color.parseColor("#AA000000")
+        }
         private var bitmap: Bitmap? = null
         private val bmpPaint = Paint()
-        init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
+
         fun setBitmap(bmp: Bitmap) { bitmap = bmp; invalidate() }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> { startX = event.x; startY = event.y; endX = event.x; endY = event.y; drawing = true; invalidate() }
-                MotionEvent.ACTION_MOVE -> { endX = event.x; endY = event.y; invalidate() }
-                MotionEvent.ACTION_UP -> { endX = event.x; endY = event.y; drawing = true; invalidate() }
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.x; startY = event.y
+                    endX = event.x; endY = event.y
+                    drawing = true
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    endX = event.x; endY = event.y
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP -> {
+                    endX = event.x; endY = event.y
+                    drawing = true
+                    invalidate()
+                }
             }
             return true
         }
@@ -147,10 +160,10 @@ class RegionSelectActivity : AppCompatActivity() {
                 val screenW = width.toFloat(); val screenH = height.toFloat()
                 val bmpW = bmp.width.toFloat(); val bmpH = bmp.height.toFloat()
 
-                // 🔥 关键修复：maxOf 让图片铺满屏幕，不留黑边
                 val scale = maxOf(screenW / bmpW, screenH / bmpH)
                 imgDrawW = bmpW * scale; imgDrawH = bmpH * scale
-                imgDrawX = (screenW - imgDrawW) / 2; imgDrawY = (screenH - imgDrawH) / 2
+                imgDrawX = (screenW - imgDrawW) / 2
+                imgDrawY = (screenH - imgDrawH) / 2
 
                 val matrix = Matrix()
                 matrix.postScale(scale, scale)
@@ -158,10 +171,17 @@ class RegionSelectActivity : AppCompatActivity() {
                 canvas.drawBitmap(bmp, matrix, bmpPaint)
             }
             if (!drawing) return
+
             val l = minOf(startX, endX); val t = minOf(startY, endY)
             val r = maxOf(startX, endX); val b = maxOf(startY, endY)
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paintDim)
-            canvas.drawRect(l, t, r, b, paintClear)
+
+            // 修复：Path EVEN_ODD 镂空遮罩，替代有 bug 的 CLEAR 模式
+            val path = Path().apply {
+                addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
+                addRect(l, t, r, b, Path.Direction.CCW)
+                fillType = Path.FillType.EVEN_ODD
+            }
+            canvas.drawPath(path, paintDim)
             canvas.drawRect(l, t, r, b, paintRect)
         }
     }
