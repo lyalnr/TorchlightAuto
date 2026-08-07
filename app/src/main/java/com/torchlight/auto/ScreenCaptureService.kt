@@ -193,6 +193,7 @@ class ScreenCaptureService : Service() {
     }
 
     private fun processText(text: String, color: String) {
+        sendDebug("📝 OCR识别: [$text] 颜色=$color")
         val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
         val cooldown = prefs.getInt("recognition_cooldown", 500).toLong()
 
@@ -203,24 +204,29 @@ class ScreenCaptureService : Service() {
         if (matched != null) {
             val now = System.currentTimeMillis()
             val last = lastSeenTime[matched.name] ?: 0
-            if (now - last < cooldown) return
+            if (now - last < cooldown) {
+                sendDebug("⏳ [${matched.name}] 冷却中，跳过")
+                return
+            }
             lastSeenTime[matched.name] = now
 
-            val allowedColors = matched.enabledColors.split(",").toSet()
-            if (color != "未知" && color !in allowedColors) {
-                sendDebug("🚫 [${matched.name}] 跳过颜色: $color")
+            // 修复：过滤掉空字符串，防止空 enabledColors 拦住所有颜色
+            val allowedColors = matched.enabledColors.split(",").filter { it.isNotBlank() }.toSet()
+            if (allowedColors.isNotEmpty() && color != "未知" && color !in allowedColors) {
+                sendDebug("🚫 [${matched.name}] 颜色不匹配: $color (允许: $allowedColors)")
                 return
             }
 
             DropRepository.addDrop(matched.name, matched.price, color)
             sendResult(matched.name, matched.price, color)
-            sendDebug("🎯 ${matched.name}(${color})")
+            sendDebug("🎯 记录掉落: ${matched.name}(${color})")
         } else {
-            val newItem = ItemEntity(name = text, price = -1f, enabled = true)
+            // 修复：新物品默认启用所有颜色，避免空字符串导致后续过滤失败
+            val newItem = ItemEntity(name = text, price = -1f, enabled = true, enabledColors = "红色,金色,紫色,蓝色,白色")
             dao.insert(newItem)
             DropRepository.addDrop(text, -1f, color)
             sendResult(text, -1f, color)
-            sendDebug("🆕 新物品: $text ($color)")
+            sendDebug("🆕 新物品入库: $text ($color)")
         }
     }
 
