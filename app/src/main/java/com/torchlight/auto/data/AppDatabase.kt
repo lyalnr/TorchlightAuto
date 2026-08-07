@@ -14,6 +14,7 @@ abstract class AppDatabase : RoomDatabase() {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "torchlight_db")
                     .fallbackToDestructiveMigration()
+                    .allowMainThreadQueries()  // 小工具数据库，允许主线程查询
                     .build().also { INSTANCE = it }
             }
         }

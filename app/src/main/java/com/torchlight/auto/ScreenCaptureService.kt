@@ -17,16 +17,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.DisplayMetrics
 import android.util.Log
-import android.view.WindowManager
-import android.view.WindowMetrics
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.torchlight.auto.data.AppDatabase
 import com.torchlight.auto.data.DropRepository
-import com.torchlight.auto.data.ItemEntity
 import java.nio.ByteBuffer
 
 class ScreenCaptureService : Service() {
@@ -55,7 +53,10 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (running) return START_STICKY
+        if (running) {
+            sendDebug("⚠️ 服务已在运行")
+            return START_STICKY
+        }
         running = true
         intent?.let {
             cropL = it.getFloatExtra("left", 0.55f); cropT = it.getFloatExtra("top", 0.08f)
@@ -63,13 +64,14 @@ class ScreenCaptureService : Service() {
         }
         val rc = intent?.getIntExtra("resultCode", -1) ?: -1
 
-        // Android 13+ 类型安全获取 Parcelable
         val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent?.getParcelableExtra("data", Intent::class.java)
         } else {
             @Suppress("DEPRECATION")
             intent?.getParcelableExtra("data")
         }
+
+        sendDebug("📥 onStartCommand rc=$rc data=${data != null}")
 
         if (rc == -1 || data == null) {
             sendDebug("❌ 录屏数据无效 rc=$rc data=${data != null}")
@@ -89,33 +91,45 @@ class ScreenCaptureService : Service() {
     }
 
     private fun setupCapture() {
-        // Android 11+ 使用 WindowMetrics 代替已弃用的 defaultDisplay
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            wm.currentWindowMetrics.bounds
-        } else {
-            @Suppress("DEPRECATION")
-            val dm = android.util.DisplayMetrics()
-            wm.defaultDisplay.getRealMetrics(dm)
-            android.graphics.Rect(0, 0, dm.widthPixels, dm.heightPixels)
+        try {
+            // 修复1：用 DisplayManager 获取真实屏幕分辨率，避免 Service 里 WindowMetrics 不准
+            val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            val display = displayManager.getDisplay(Display.DEFAULT_DISPLAY)
+            val metrics = DisplayMetrics()
+            display.getRealMetrics(metrics)
+
+            w = metrics.widthPixels
+            h = metrics.heightPixels
+            density = metrics.densityDpi
+
+            sendDebug("📱 屏幕: ${w}x$h dpi=$density")
+
+            var rw = w; var rh = h
+            if (rw > 2560 || rh > 2560) {
+                val maxPx = if (rw > rh) rw else rh
+                val s = 2560f / maxPx
+                rw = (rw * s).toInt(); rh = (rh * s).toInt()
+            }
+
+            sendDebug("🖼️ ImageReader: ${rw}x$rh")
+
+            imageReader = ImageReader.newInstance(rw, rh, android.graphics.PixelFormat.RGBA_8888, 2)
+            virtualDisplay = projection?.createVirtualDisplay("Cap", rw, rh, density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader?.surface, null, null)
+
+            if (virtualDisplay == null) {
+                sendDebug("❌ VirtualDisplay 创建失败")
+                stopSelf()
+                return
+            }
+
+            sendDebug("✅ 录屏启动成功")
+            handler.postDelayed(captureRunnable, 1200)
+        } catch (e: Exception) {
+            sendDebug("❌ setupCapture 异常: ${e.message}")
+            Log.e("OCR", "setup error", e)
+            stopSelf()
         }
-
-        w = bounds.width(); h = bounds.height()
-        density = resources.displayMetrics.densityDpi
-
-        var rw = w; var rh = h
-        if (rw > 2560 || rh > 2560) {
-            val maxPx = if (rw > rh) rw else rh
-            val s = 2560f / maxPx
-            rw = (rw * s).toInt(); rh = (rh * s).toInt()
-        }
-
-        imageReader = ImageReader.newInstance(rw, rh, android.graphics.PixelFormat.RGBA_8888, 2)
-        virtualDisplay = projection?.createVirtualDisplay("Cap", rw, rh, density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader?.surface, null, null)
-
-        sendDebug("✅ 录屏启动 ${w}x$h → ${rw}x$rh")
-        handler.postDelayed(captureRunnable, 600)
     }
 
     private val captureRunnable = object : Runnable {
@@ -132,7 +146,14 @@ class ScreenCaptureService : Service() {
         val reader = imageReader ?: return
         var image: Image? = null
         try {
-            image = reader.acquireLatestImage() ?: return
+            image = reader.acquireLatestImage()
+            if (image == null) {
+                // 修复2：null 图像也要记录，否则完全不知道发生了什么
+                sendDebug("⏸️ 未获取到图像")
+                return
+            }
+            sendDebug("📸 获取图像 ${image.width}x${image.height}")
+
             val buf: ByteBuffer = image.planes[0].buffer
             val ps = image.planes[0].pixelStride
             val rs = image.planes[0].rowStride
@@ -140,9 +161,12 @@ class ScreenCaptureService : Service() {
             val off = (rs - ps * iw) / ps
             val bmp = Bitmap.createBitmap(iw + off, ih, Bitmap.Config.ARGB_8888)
             bmp.copyPixelsFromBuffer(buf)
+
             val cx = (iw * cropL).toInt(); val cy = (ih * cropT).toInt()
             val cw = ((iw * cropR).toInt() - cx).coerceAtLeast(80)
             val ch = ((ih * cropB).toInt() - cy).coerceAtLeast(40)
+            sendDebug("✂️ 裁剪: ${cx},${cy} ${cw}x${ch}")
+
             if (cw <= 0 || ch <= 0) { bmp.recycle(); return }
             val cropped = Bitmap.createBitmap(bmp, cx, cy, cw, ch)
             bmp.recycle()
@@ -161,17 +185,24 @@ class ScreenCaptureService : Service() {
             .process(input)
             .addOnSuccessListener { result ->
                 val blocks = result.textBlocks
+                sendDebug("🔍 OCR识别到 ${blocks.size} 个文字块")
+                if (blocks.isEmpty()) {
+                    sendDebug("📝 文字块为空，未识别到内容")
+                    bitmap.recycle()
+                    return@addOnSuccessListener
+                }
                 for (block in blocks) {
                     val text = block.text.trim()
                     if (text.isEmpty()) continue
                     val color = detectColor(bitmap, block.boundingBox)
+                    sendDebug("📝 识别: [$text] 颜色=$color")
                     processText(text, color)
                 }
                 bitmap.recycle()
             }
             .addOnFailureListener { e ->
                 bitmap.recycle()
-                sendDebug("❌ OCR失败: ${e.message}")
+                sendDebug("❌ OCR引擎失败: ${e.message}")
             }
     }
 
@@ -193,40 +224,45 @@ class ScreenCaptureService : Service() {
     }
 
     private fun processText(text: String, color: String) {
-        sendDebug("📝 OCR识别: [$text] 颜色=$color")
-        val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
-        val cooldown = prefs.getInt("recognition_cooldown", 500).toLong()
+        try {
+            val prefs = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
+            val cooldown = prefs.getInt("recognition_cooldown", 500).toLong()
 
-        val dao = AppDatabase.getDatabase(this).itemDao()
-        val allItems = dao.getAll().filter { it.enabled }
-        val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
+            val dao = AppDatabase.getDatabase(this).itemDao()
+            val allItems = dao.getAll().filter { it.enabled }
+            val matched = allItems.filter { text.contains(it.name) }.maxByOrNull { it.name.length }
 
-        if (matched != null) {
-            val now = System.currentTimeMillis()
-            val last = lastSeenTime[matched.name] ?: 0
-            if (now - last < cooldown) {
-                sendDebug("⏳ [${matched.name}] 冷却中，跳过")
-                return
+            if (matched != null) {
+                val now = System.currentTimeMillis()
+                val last = lastSeenTime[matched.name] ?: 0
+                if (now - last < cooldown) {
+                    sendDebug("⏳ [${matched.name}] 冷却中")
+                    return
+                }
+                lastSeenTime[matched.name] = now
+
+                val allowedColors = matched.enabledColors.split(",").filter { it.isNotBlank() }.toSet()
+                if (allowedColors.isNotEmpty() && color != "未知" && color !in allowedColors) {
+                    sendDebug("🚫 [${matched.name}] 颜色不匹配: $color (允许: $allowedColors)")
+                    return
+                }
+
+                DropRepository.addDrop(matched.name, matched.price, color)
+                sendResult(matched.name, matched.price, color)
+                sendDebug("🎯 记录: ${matched.name}(${color})")
+            } else {
+                val newItem = com.torchlight.auto.data.ItemEntity(
+                    name = text, price = -1f, enabled = true,
+                    enabledColors = "红色,金色,紫色,蓝色,白色"
+                )
+                dao.insert(newItem)
+                DropRepository.addDrop(text, -1f, color)
+                sendResult(text, -1f, color)
+                sendDebug("🆕 新物品: $text ($color)")
             }
-            lastSeenTime[matched.name] = now
-
-            // 修复：过滤掉空字符串，防止空 enabledColors 拦住所有颜色
-            val allowedColors = matched.enabledColors.split(",").filter { it.isNotBlank() }.toSet()
-            if (allowedColors.isNotEmpty() && color != "未知" && color !in allowedColors) {
-                sendDebug("🚫 [${matched.name}] 颜色不匹配: $color (允许: $allowedColors)")
-                return
-            }
-
-            DropRepository.addDrop(matched.name, matched.price, color)
-            sendResult(matched.name, matched.price, color)
-            sendDebug("🎯 记录掉落: ${matched.name}(${color})")
-        } else {
-            // 修复：新物品默认启用所有颜色，避免空字符串导致后续过滤失败
-            val newItem = ItemEntity(name = text, price = -1f, enabled = true, enabledColors = "红色,金色,紫色,蓝色,白色")
-            dao.insert(newItem)
-            DropRepository.addDrop(text, -1f, color)
-            sendResult(text, -1f, color)
-            sendDebug("🆕 新物品入库: $text ($color)")
+        } catch (e: Exception) {
+            sendDebug("❌ processText异常: ${e.message}")
+            Log.e("OCR", "process error", e)
         }
     }
 
