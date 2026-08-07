@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
+import android.view.Display
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.vision.common.InputImage
