@@ -144,6 +144,8 @@ class MainActivity : AppCompatActivity() {
         }
         DropRepository.clear()
         floatMgr.show()
+        // 诊断：发送测试广播，确认Fragment能接收
+        sendBroadcast(Intent(ScreenCaptureService.ACTION_DEBUG).putExtra("msg", "🔔 诊断: MainActivity广播测试"))
         val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
     }
