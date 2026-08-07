@@ -61,7 +61,6 @@ class ScreenCaptureService : Service() {
             sendDebug("⚠️ 服务已在运行")
             return START_STICKY
         }
-        running = true
         intent?.let {
             cropL = it.getFloatExtra("left", 0.55f); cropT = it.getFloatExtra("top", 0.08f)
             cropR = it.getFloatExtra("right", 0.95f); cropB = it.getFloatExtra("bottom", 0.42f)
@@ -77,12 +76,13 @@ class ScreenCaptureService : Service() {
 
         sendDebug("📥 onStartCommand rc=$rc data=${data != null}")
 
-        if (rc == -1 || data == null) {
+        if (rc != -1 || data == null) {
             sendDebug("❌ 录屏数据无效 rc=$rc data=${data != null}")
             stopSelf()
             return START_STICKY
         }
 
+        running = true
         val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         projection = mgr.getMediaProjection(rc, data)
         if (projection == null) {
