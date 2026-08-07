@@ -42,8 +42,11 @@ class MainActivity : AppCompatActivity() {
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        toast("📥 回调触发 resultCode=${result.resultCode}")
-        if (result.resultCode == RESULT_OK && result.data != null) {
+        val rc = result.resultCode
+        val isOk = rc == RESULT_OK
+        toast("📥 回调触发 resultCode=$rc RESULT_OK=${RESULT_OK} 匹配=$isOk")
+        sendBroadcast(Intent(ScreenCaptureService.ACTION_DEBUG).putExtra("msg", "📥 授权回调 rc=$rc RESULT_OK=${RESULT_OK} data=${result.data != null}"))
+        if (isOk && result.data != null) {
             val p1 = pagerAdapter.fragments[0] as Page1Fragment
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                 putExtra("resultCode", result.resultCode)
