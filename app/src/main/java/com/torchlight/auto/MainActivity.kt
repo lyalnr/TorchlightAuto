@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        toast("📥 回调触发 resultCode=${result.resultCode}")
         if (result.resultCode == RESULT_OK && result.data != null) {
             val p1 = pagerAdapter.fragments[0] as Page1Fragment
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
@@ -51,10 +52,16 @@ class MainActivity : AppCompatActivity() {
                 putExtra("right", p1.cropR)
                 putExtra("bottom", p1.cropB)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                toast("🚀 Service启动指令已发送")
+            } catch (e: Exception) {
+                toast("❌ 启动Service失败: ${e.message}")
+                Log.e("OCR", "start service failed", e)
             }
         } else {
             toast("录屏权限被拒绝")

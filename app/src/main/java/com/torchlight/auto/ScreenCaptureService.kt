@@ -49,11 +49,14 @@ class ScreenCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        android.widget.Toast.makeText(this, "🔔 Service.onCreate 被调用", android.widget.Toast.LENGTH_SHORT).show()
         createChannel()
         startForeground(1002, createNotification("OCR准备中..."))
+        android.widget.Toast.makeText(this, "✅ 前台服务已启动", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.widget.Toast.makeText(this, "📥 onStartCommand 被调用", android.widget.Toast.LENGTH_SHORT).show()
         if (running) {
             sendDebug("⚠️ 服务已在运行")
             return START_STICKY
