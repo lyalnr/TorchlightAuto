@@ -5,9 +5,6 @@ import android.content.Context
 import android.graphics.*
 import android.view.*
 import android.widget.*
-import kotlin.math.maxOf
-import kotlin.math.minOf
-import kotlin.math.minOf
 
 class RegionSelectorWindow(private val context: Context) {
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -101,10 +98,10 @@ class RegionSelectorWindow(private val context: Context) {
         var hasSelection = false
             private set
 
-        val leftPct   get() = minOf(startX, endX) / width
-        val topPct    get() = minOf(startY, endY) / height
-        val rightPct  get() = maxOf(startX, endX) / width
-        val bottomPct get() = maxOf(startY, endY) / height
+        val leftPct   get() = if (startX < endX) startX else endX / width
+        val topPct    get() = if (startY < endY) startY else endY / height
+        val rightPct  get() = if (startX > endX) startX else endX / width
+        val bottomPct get() = if (startY > endY) startY else endY / height
 
         private val paintRect = Paint().apply {
             color = Color.parseColor("#00FF00")
@@ -138,8 +135,8 @@ class RegionSelectorWindow(private val context: Context) {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             if (!drawing) return
-            val l = minOf(startX, endX); val t = minOf(startY, endY)
-            val r = maxOf(startX, endX); val b = maxOf(startY, endY)
+            val l = if (startX < endX) startX else endX; val t = if (startY < endY) startY else endY
+            val r = if (startX > endX) startX else endX; val b = if (startY > endY) startY else endY
             val path = Path().apply {
                 addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
                 addRect(l, t, r, b, Path.Direction.CCW)

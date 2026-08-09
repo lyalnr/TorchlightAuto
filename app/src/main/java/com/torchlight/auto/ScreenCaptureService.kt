@@ -27,7 +27,6 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import java.util.regex.Pattern
-import kotlin.math.maxOf
 
 class ScreenCaptureService : Service() {
 
@@ -299,7 +298,7 @@ class ScreenCaptureService : Service() {
         if (right <= left || bottom <= top) return "white"
 
         var orange = 0; var purple = 0; var green = 0; var total = 0
-        val step = maxOf(1, (right - left) / 10)
+        val step = if (1 > (right - left) / 10) 1 else (right - left) / 10
 
         for (x in left until right step step) {
             for (y in top until bottom step step) {
