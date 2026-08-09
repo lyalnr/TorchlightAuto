@@ -1,5 +1,5 @@
-import android.graphics.Color
 package com.torchlight.auto
+import android.graphics.Color
 
 import android.content.Context
 import android.content.Intent
