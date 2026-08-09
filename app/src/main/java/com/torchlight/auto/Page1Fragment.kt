@@ -85,11 +85,11 @@ class Page1Fragment : Fragment() {
         }
         root.addView(tvArea)
 
-        val btnSelect = Button(context).apply {
-            text = "✂️ 框选识别区域"
+        val btnSelect = TextView(context).apply {
+            text = "📐 区域将在启动后自动框选"
+            setTextColor(Color.GRAY)
             setOnClickListener {
                 try {
-                    startActivity(Intent(requireContext(), RegionSelectActivity::class.java))
                 } catch (e: Exception) {
                     Toast.makeText(requireContext(), "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
                 }
