@@ -1,3 +1,4 @@
+import android.graphics.Color
 package com.torchlight.auto
 
 import android.content.Context

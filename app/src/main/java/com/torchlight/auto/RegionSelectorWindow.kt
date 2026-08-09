@@ -7,6 +7,7 @@ import android.view.*
 import android.widget.*
 import kotlin.math.maxOf
 import kotlin.math.minOf
+import kotlin.math.minOf
 
 class RegionSelectorWindow(private val context: Context) {
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
