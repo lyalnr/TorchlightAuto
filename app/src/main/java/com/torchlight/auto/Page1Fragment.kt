@@ -1,8 +1,7 @@
 package com.torchlight.auto
-import android.graphics.Color
 
 import android.content.Context
-import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -136,6 +135,44 @@ class Page1Fragment : Fragment() {
             }
         }
         root.addView(btnUnlock)
+
+        // === 新增：日志监听控制 ===
+        root.addView(TextView(context).apply {
+            text = "\n📄 日志监听模式（实验性）："
+            textSize = 14f
+        })
+
+        val btnLogStart = Button(context).apply {
+            text = "▶ 启动日志监听"
+            setOnClickListener {
+                try {
+                    (activity as MainActivity).startLogMonitor()
+                    appendLog("📄 日志监听已启动")
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(), "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        root.addView(btnLogStart)
+
+        val btnLogStop = Button(context).apply {
+            text = "⏹ 停止日志监听"
+            setOnClickListener {
+                try {
+                    (activity as MainActivity).stopLogMonitor()
+                    appendLog("⏹ 日志监听已停止")
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(), "停止失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        root.addView(btnLogStop)
+
+        root.addView(TextView(context).apply {
+            text = "\n⚠️ 需要授权访问 Android/data 目录"
+            textSize = 11f
+            setTextColor(0xFF888888.toInt())
+        })
 
         root.addView(TextView(context).apply {
             text = "\n📋 日志："

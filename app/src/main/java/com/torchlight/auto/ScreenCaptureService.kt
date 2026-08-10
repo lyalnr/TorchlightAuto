@@ -26,6 +26,7 @@ import androidx.core.app.NotificationCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.torchlight.auto.data.AppDatabase
 import java.util.regex.Pattern
 
 class ScreenCaptureService : Service() {
@@ -80,7 +81,7 @@ class ScreenCaptureService : Service() {
             }
 
             serviceState = STATE_OCR
-            sendDebug("✅ 区域已保存: \${(cropL*100).toInt()}%/\${(cropT*100).toInt()}%/\${(cropR*100).toInt()}%/\${(cropB*100).toInt()}%")
+            sendDebug("✅ 区域已保存: ${(cropL*100).toInt()}%/${(cropT*100).toInt()}%/${(cropR*100).toInt()}%/${(cropB*100).toInt()}%")
             sendDebug("🚀 进入持续识别模式")
             handler.post(captureRunnable)
         }
@@ -171,7 +172,7 @@ class ScreenCaptureService : Service() {
                 .process(input)
                 .addOnSuccessListener { result ->
                     val text = result.text
-                    sendDebug("🔍 检测: \${text.take(50)}")
+                    sendDebug("🔍 检测: ${text.take(50)}")
 
                     if (isMainScreen(text)) {
                         sendDebug("🎮 检测到游戏主页面！等待框选...")
@@ -192,7 +193,7 @@ class ScreenCaptureService : Service() {
                     sendDebug("❌ OCR检测失败")
                 }
         } catch (e: Exception) {
-            sendDebug("❌ 检测异常: \${e.message}")
+            sendDebug("❌ 检测异常: ${e.message}")
         } finally {
             image?.close()
         }
@@ -231,7 +232,7 @@ class ScreenCaptureService : Service() {
             val cw = ((iw * cropR).toInt() - cx).coerceAtLeast(80)
             val ch = ((ih * cropB).toInt() - cy).coerceAtLeast(40)
 
-            sendDebug("✂️ 裁剪: \${cx},\${cy} \${cw}x\${ch}")
+            sendDebug("✂️ 裁剪: ${cx},${cy} ${cw}x${ch}")
 
             if (cw <= 0 || ch <= 0) { bmp.recycle(); return }
 
@@ -239,7 +240,7 @@ class ScreenCaptureService : Service() {
             bmp.recycle()
             doOCR(cropped)
         } catch (e: Exception) {
-            sendDebug("❌ 截图异常: \${e.message}")
+            sendDebug("❌ 截图异常: ${e.message}")
         } finally {
             image?.close()
         }
@@ -268,7 +269,7 @@ class ScreenCaptureService : Service() {
                         val color = detectColor(bitmap, line.boundingBox)
                         val (name, price) = processText(txt, color)
                         if (name != null && price > 0) {
-                            val key = "\$name-\$color"
+                            val key = "$name-$color"
                             val now = System.currentTimeMillis()
                             val last = lastSeenTime.getOrDefault(key, 0L)
                             val cool = getSharedPreferences("ocr_settings", Context.MODE_PRIVATE)
@@ -322,14 +323,27 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    // === 改进：优先从数据库查询价格 ===
     private fun processText(text: String, color: String): Pair<String?, Double> {
-        val p = Pattern.compile("(.+?)(\\d+\\.?\\d*)")
+        val p = Pattern.compile("""(.+?)(\d+\.?\d*)""")
         val m = p.matcher(text)
         if (m.find()) {
-            val name = m.group(1)?.trim()
+            val name = m.group(1)?.trim() ?: return null to 0.0
             val qty = m.group(2)?.toDoubleOrNull() ?: 1.0
-            val base = priceMap[name] ?: 0.0
-            return name to (base * qty)
+
+            val price = try {
+                val db = AppDatabase.getDatabase(this)
+                val item = db.itemDao().getByName(name)
+                if (item != null && item.enabled && item.price >= 0) {
+                    item.price.toDouble()
+                } else {
+                    priceMap[name] ?: 0.0
+                }
+            } catch (e: Exception) {
+                priceMap[name] ?: 0.0
+            }
+
+            return name to (price * qty)
         }
         return null to 0.0
     }

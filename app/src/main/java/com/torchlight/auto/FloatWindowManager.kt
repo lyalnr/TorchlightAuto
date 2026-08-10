@@ -141,12 +141,37 @@ class FloatWindowManager(private val ctx: Context) {
     fun isLocked(): Boolean = isLocked
 
     fun update() {
-        tvTotal?.text = "💰 今日收入: ${DropRepository.totalFire} 火"
-        val txt = DropRepository.todayDrops.takeLast(4).joinToString("\n") {
-            val v = if (it.unitPrice >= 0) "=${it.quantity * it.unitPrice}火" else "=未知"
-            "${it.name} x${it.quantity} $v"
-        }
-        tvList?.text = txt.ifEmpty { "等待掉落..." }
+        val current = DropRepository.currentMap
+        val total = DropRepository.totalFire
+        val mapCount = DropRepository.mapCount
+        val totalTimeMin = DropRepository.totalTimeMs / 60000f
+
+        val totalSpeed = if (totalTimeMin > 0) total / totalTimeMin else 0f
+        val currentSpeed = current?.firePerMin ?: 0f
+        val currentIncome = current?.income ?: 0f
+        val currentDuration = current?.durationMs ?: 0
+
+        val durationStr = formatDuration(currentDuration)
+
+        tvTotal?.text = "💰 今日: ${total.toInt()}火 | 地图${mapCount}"
+        tvList?.text = buildString {
+            appendLine("⚡ 当前: ${currentIncome.toInt()}火 (${durationStr})")
+            appendLine("📈 速度: ${currentSpeed.toInt()}/分 | 总计: ${totalSpeed.toInt()}/分")
+            val recent = DropRepository.todayDrops.takeLast(3)
+            if (recent.isNotEmpty()) {
+                appendLine("─".repeat(20))
+                for (drop in recent) {
+                    val v = if (drop.unitPrice >= 0) "=${(drop.quantity * drop.unitPrice).toInt()}火" else ""
+                    appendLine("${drop.name} x${drop.quantity} $v")
+                }
+            }
+        }.trim()
+    }
+
+    private fun formatDuration(ms: Long): String {
+        val m = ms / 60000
+        val s = (ms % 60000) / 1000
+        return "${m}m${s}s"
     }
 
     fun hide() {

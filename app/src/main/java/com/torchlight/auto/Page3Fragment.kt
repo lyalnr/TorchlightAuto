@@ -49,37 +49,90 @@ class Page3Fragment : Fragment() {
 
     fun refresh() {
         if (!initialized || !::tvTotal.isInitialized) return
-        tvTotal.text = "💰 今日总收入: ${DropRepository.totalFire} 火"
+        tvTotal.text = "💰 今日总收入: ${DropRepository.totalFire.toInt()} 火 | ${DropRepository.mapCount} 局"
+
         dropsContainer.removeAllViews()
+
+        // 当前地图信息
+        DropRepository.currentMap?.let { current ->
+            val currentRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(8, 8, 8, 8)
+                setBackgroundColor(0xFF1A3A1A.toInt())
+            }
+            val duration = current.durationMs
+            val m = duration / 60000
+            val s = (duration % 60000) / 1000
+            currentRow.addView(TextView(context).apply {
+                text = "🗺️ 当前地图 ${m}m${s}s | ${current.income.toInt()}火 | ${current.firePerMin.toInt()}/分"
+                textSize = 13f
+                setTextColor(0xFF00FF00.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            dropsContainer.addView(currentRow)
+        }
+
+        // 历史地图列表（最近5局）
+        val recentMaps = DropRepository.mapSessions.takeLast(5)
+        if (recentMaps.isNotEmpty()) {
+            dropsContainer.addView(TextView(context).apply {
+                text = "\n📜 最近地图："
+                textSize = 14f
+                setTextColor(0xFFAAAAAA.toInt())
+            })
+            for ((index, session) in recentMaps.withIndex()) {
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(8, 4, 8, 4)
+                }
+                val duration = session.durationMs
+                val m = duration / 60000
+                val s = (duration % 60000) / 1000
+                row.addView(TextView(context).apply {
+                    text = "第${DropRepository.mapCount - recentMaps.size + index + 1}局 ${m}m${s}s | ${session.income.toInt()}火"
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                dropsContainer.addView(row)
+            }
+        }
+
+        // 今日掉落列表
+        dropsContainer.addView(TextView(context).apply {
+            text = "\n📦 今日掉落："
+            textSize = 14f
+        })
+
         if (DropRepository.todayDrops.isEmpty()) {
-            dropsContainer.addView(TextView(context).apply { text = "暂无掉落"; setTextColor(0xFF888888.toInt()) })
+            dropsContainer.addView(TextView(context).apply {
+                text = "暂无掉落"
+                setTextColor(0xFF888888.toInt())
+            })
             return
         }
+
         for (drop in DropRepository.todayDrops.sortedByDescending { it.quantity }) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(8,8,8,8)
+                setPadding(8, 8, 8, 8)
             }
-            val totalText = if (drop.unitPrice >= 0) "=${drop.quantity * drop.unitPrice}火" else "未知"
-            val nameView = TextView(context).apply {
+            val totalText = if (drop.unitPrice >= 0) "=${(drop.quantity * drop.unitPrice).toInt()}火" else "未知"
+            row.addView(TextView(context).apply {
                 text = "${drop.name} [${drop.color}]"
                 textSize = 15f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
-            }
-            val qtyView = TextView(context).apply {
+            })
+            row.addView(TextView(context).apply {
                 text = "x${drop.quantity}"
                 textSize = 14f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val valView = TextView(context).apply {
+            })
+            row.addView(TextView(context).apply {
                 text = totalText
                 textSize = 14f
                 setTextColor(0xFFFFD700.toInt())
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            row.addView(nameView)
-            row.addView(qtyView)
-            row.addView(valView)
+            })
             dropsContainer.addView(row)
             dropsContainer.addView(View(context).apply {
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
@@ -113,11 +166,11 @@ class Page3Fragment : Fragment() {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val sb = StringBuilder()
         sb.appendLine("火炬之光掉落记录 - $date")
-        sb.appendLine("总收入: ${DropRepository.totalFire} 火")
+        sb.appendLine("总收入: ${DropRepository.totalFire.toInt()} 火 | ${DropRepository.mapCount} 局")
         sb.appendLine("========================")
         for (drop in DropRepository.todayDrops) {
             val line = if (drop.unitPrice >= 0) {
-                "${drop.name} [${drop.color}] x${drop.quantity} @${drop.unitPrice}火 = ${drop.quantity * drop.unitPrice}火"
+                "${drop.name} [${drop.color}] x${drop.quantity} @${drop.unitPrice}火 = ${(drop.quantity * drop.unitPrice).toInt()}火"
             } else {
                 "${drop.name} [${drop.color}] x${drop.quantity} @未知"
             }

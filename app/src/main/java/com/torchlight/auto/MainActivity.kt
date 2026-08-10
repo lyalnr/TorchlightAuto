@@ -39,6 +39,12 @@ class MainActivity : AppCompatActivity() {
     private val floatMgr by lazy { FloatWindowManager(this) }
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
+    // === 新增：日志监听相关 ===
+    private var logMonitor: LogMonitor? = null
+    private var logDropReceiver: BroadcastReceiver? = null
+    private var logDebugReceiver: BroadcastReceiver? = null
+    private var mapStateReceiver: BroadcastReceiver? = null
+
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -96,6 +102,7 @@ class MainActivity : AppCompatActivity() {
         }.attach()
 
         registerReceivers()
+        registerLogReceivers()
         checkPermissions()
         DropRepository.listeners.add {
             runOnUiThread {
@@ -147,6 +154,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // === 新增：日志监听广播接收器 ===
+    private fun registerLogReceivers() {
+        logDropReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                val name = i?.getStringExtra("name") ?: return
+                val price = i.getFloatExtra("price", 0f)
+                val qty = i.getIntExtra("quantity", 1)
+                (pagerAdapter.fragments[2] as? Page3Fragment)?.refresh()
+            }
+        }
+        logDebugReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                val msg = i?.getStringExtra("msg") ?: return
+                (pagerAdapter.fragments[0] as? Page1Fragment)?.appendLog(msg)
+            }
+        }
+        mapStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                val inMap = i?.getBooleanExtra("inMap", false) ?: return
+                (pagerAdapter.fragments[0] as? Page1Fragment)?.appendLog(
+                    if (inMap) "🗺️ 进入新地图" else "🏠 返回城镇"
+                )
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(logDropReceiver, IntentFilter(LogMonitor.ACTION_LOG_DROP), ContextCompat.RECEIVER_NOT_EXPORTED)
+            registerReceiver(logDebugReceiver, IntentFilter(LogMonitor.ACTION_LOG_DEBUG), ContextCompat.RECEIVER_NOT_EXPORTED)
+            registerReceiver(mapStateReceiver, IntentFilter(LogMonitor.ACTION_MAP_STATE), ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(logDropReceiver, IntentFilter(LogMonitor.ACTION_LOG_DROP))
+            registerReceiver(logDebugReceiver, IntentFilter(LogMonitor.ACTION_LOG_DEBUG))
+            registerReceiver(mapStateReceiver, IntentFilter(LogMonitor.ACTION_MAP_STATE))
+        }
+    }
+
     fun startOCR() {
         if (!Settings.canDrawOverlays(this)) {
             toast("需要悬浮窗权限")
@@ -155,7 +198,6 @@ class MainActivity : AppCompatActivity() {
         }
         DropRepository.clear()
         floatMgr.show()
-        // 诊断：发送测试广播，确认Fragment能接收
         sendBroadcast(Intent(ScreenCaptureService.ACTION_DEBUG).putExtra("msg", "🔔 诊断: MainActivity广播测试"))
         val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
@@ -172,6 +214,16 @@ class MainActivity : AppCompatActivity() {
         floatMgr.unlock()
     }
 
+    // === 新增：日志监听控制 ===
+    fun startLogMonitor() {
+        if (logMonitor == null) logMonitor = LogMonitor(this)
+        logMonitor?.start()
+    }
+
+    fun stopLogMonitor() {
+        logMonitor?.stop()
+    }
+
     fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
@@ -181,6 +233,9 @@ class MainActivity : AppCompatActivity() {
         scope.cancel()
         try { ocrReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
         try { debugReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        try { logDropReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        try { logDebugReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
+        try { mapStateReceiver?.let { unregisterReceiver(it) } } catch (_: Exception) {}
         floatMgr.hide()
     }
 
