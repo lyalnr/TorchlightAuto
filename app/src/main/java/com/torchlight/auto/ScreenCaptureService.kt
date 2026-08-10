@@ -127,8 +127,23 @@ class ScreenCaptureService : Service() {
         }
 
         setupCapture()
-        serviceState = STATE_DETECTING
-        handler.post(detectRunnable)
+
+        // === 关键修复：如果传入了有效区域，直接开始OCR，跳过检测 ===
+        val left = intent?.getFloatExtra("left", 0f) ?: 0f
+        val top = intent?.getFloatExtra("top", 0f) ?: 0f
+        val right = intent?.getFloatExtra("right", 0f) ?: 0f
+        val bottom = intent?.getFloatExtra("bottom", 0f) ?: 0f
+
+        if (left > 0 && top > 0 && right > left && bottom > top) {
+            cropL = left; cropT = top; cropR = right; cropB = bottom
+            serviceState = STATE_OCR
+            sendDebug("🚀 使用预设区域直接开始识别: ${(cropL*100).toInt()}%/${(cropT*100).toInt()}%/${(cropR*100).toInt()}%/${(cropB*100).toInt()}%")
+            handler.post(captureRunnable)
+        } else {
+            serviceState = STATE_DETECTING
+            sendDebug("🔍 未设置区域，进入主页面检测模式...")
+            handler.post(detectRunnable)
+        }
         return START_STICKY
     }
 
