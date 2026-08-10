@@ -39,7 +39,6 @@ class MainActivity : AppCompatActivity() {
     private val floatMgr by lazy { FloatWindowManager(this) }
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
-    // === 新增：日志监听相关 ===
     private var logMonitor: LogMonitor? = null
     private var logDropReceiver: BroadcastReceiver? = null
     private var logDebugReceiver: BroadcastReceiver? = null
@@ -154,7 +153,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // === 新增：日志监听广播接收器 ===
     private fun registerLogReceivers() {
         logDropReceiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, i: Intent?) {
@@ -214,7 +212,6 @@ class MainActivity : AppCompatActivity() {
         floatMgr.unlock()
     }
 
-    // === 新增：日志监听控制 ===
     fun startLogMonitor() {
         if (logMonitor == null) logMonitor = LogMonitor(this)
         logMonitor?.start()

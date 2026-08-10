@@ -53,7 +53,6 @@ class Page3Fragment : Fragment() {
 
         dropsContainer.removeAllViews()
 
-        // 当前地图信息
         DropRepository.currentMap?.let { current ->
             val currentRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -72,7 +71,6 @@ class Page3Fragment : Fragment() {
             dropsContainer.addView(currentRow)
         }
 
-        // 历史地图列表（最近5局）
         val recentMaps = DropRepository.mapSessions.takeLast(5)
         if (recentMaps.isNotEmpty()) {
             dropsContainer.addView(TextView(context).apply {
@@ -97,7 +95,6 @@ class Page3Fragment : Fragment() {
             }
         }
 
-        // 今日掉落列表
         dropsContainer.addView(TextView(context).apply {
             text = "\n📦 今日掉落："
             textSize = 14f

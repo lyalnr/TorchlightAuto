@@ -88,12 +88,6 @@ class Page1Fragment : Fragment() {
         val btnSelect = TextView(context).apply {
             text = "📐 区域将在启动后自动框选"
             setTextColor(Color.GRAY)
-            setOnClickListener {
-                try {
-                } catch (e: Exception) {
-                    Toast.makeText(requireContext(), "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
         }
         root.addView(btnSelect)
 
@@ -136,7 +130,6 @@ class Page1Fragment : Fragment() {
         }
         root.addView(btnUnlock)
 
-        // === 新增：日志监听控制 ===
         root.addView(TextView(context).apply {
             text = "\n📄 日志监听模式（实验性）："
             textSize = 14f

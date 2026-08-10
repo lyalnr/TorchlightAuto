@@ -323,7 +323,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    // === 改进：优先从数据库查询价格 ===
     private fun processText(text: String, color: String): Pair<String?, Double> {
         val p = Pattern.compile("""(.+?)(\d+\.?\d*)""")
         val m = p.matcher(text)
