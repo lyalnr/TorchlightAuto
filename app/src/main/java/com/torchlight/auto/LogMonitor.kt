@@ -57,9 +57,11 @@ class LogMonitor(private val context: Context) {
             RandomAccessFile(file, "r").use { raf ->
                 raf.seek(lastPosition)
                 val sb = StringBuilder()
-                var line: String?
-                while (raf.readLine()?.also { line = it } != null) {
-                    val bytes = line!!.toByteArray(Charsets.ISO_8859_1)
+                var line: String? = null
+                while (true) {
+                    line = raf.readLine()
+                    if (line == null) break
+                    val bytes = line.toByteArray(Charsets.ISO_8859_1)
                     sb.appendLine(String(bytes, Charsets.UTF_8))
                 }
                 lastPosition = raf.filePointer
