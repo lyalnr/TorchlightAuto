@@ -1,51 +1,50 @@
 plugins {
-    id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
-    id 'kotlin-parcelize'
-    id 'kotlin-kapt'
+ id 'com.android.application'
+ id 'org.jetbrains.kotlin.android'
+ id 'kotlin-parcelize'
+ id 'kotlin-kapt'
 }
 
 android {
-    namespace 'com.torchlight.auto'
-    compileSdk 34
+ namespace 'com.torchlight.auto'
+ compileSdk 34
 
-    defaultConfig {
-        applicationId "com.torchlight.auto"
-        minSdk 28
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
-    }
+ defaultConfig {
+ applicationId "com.torchlight.auto"
+ minSdk 28
+ targetSdk 34
+ versionCode 1
+ versionName "1.0"
+ }
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = '17'
-    }
+ compileOptions {
+ sourceCompatibility JavaVersion.VERSION_17
+ targetCompatibility JavaVersion.VERSION_17
+ }
+ kotlinOptions {
+ jvmTarget = '17'
+ }
 }
 
 repositories {
-    google()
-    mavenCentral()
-    maven { url 'https://maven.rikka.dev/releases' }
-    maven { url 'https://jitpack.io' }
+ google()
+ mavenCentral()
+ maven { url 'https://maven.rikka.dev/releases' }
+ maven { url 'https://jitpack.io' }
 }
 
 dependencies {
-    implementation "androidx.room:room-runtime:2.6.1"
-    kapt "androidx.room:room-compiler:2.6.1"
-    implementation "androidx.room:room-ktx:2.6.1"
-    implementation "androidx.viewpager2:viewpager2:1.0.0"
-    implementation "com.google.android.material:material:1.11.0"
-    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0"
+ implementation "androidx.room:room-runtime:2.6.1"
+ kapt "androidx.room:room-compiler:2.6.1"
+ implementation "androidx.room:room-ktx:2.6.1"
+ implementation "androidx.viewpager2:viewpager2:1.0.0"
+ implementation "com.google.android.material:material:1.11.0"
+ implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0"
 
-    implementation "com.google.mlkit:text-recognition-chinese:16.0.0"
-    implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'dev.rikka.shizuku:api:13.1.0'
-    implementation 'dev.rikka.shizuku:provider:13.1.5'
+ implementation 'androidx.core:core-ktx:1.12.0'
+ implementation 'androidx.appcompat:appcompat:1.6.1'
+ implementation 'com.google.android.material:material:1.11.0'
+ implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+ implementation 'dev.rikka.shizuku:api:13.1.0'
+ implementation 'dev.rikka.shizuku:provider:13.1.5'
 }

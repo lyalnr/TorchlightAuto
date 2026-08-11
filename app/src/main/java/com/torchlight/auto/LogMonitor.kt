@@ -2,12 +2,12 @@ package com.torchlight.auto
 
 import android.content.Context
 import android.content.Intent
-import android.os.FileObserver
 import android.os.Handler
 import android.os.Looper
+import android.content.pm.PackageManager
 import com.torchlight.auto.data.DropRepository
-import java.io.File
-import java.io.RandomAccessFile
+import rikka.shizuku.Shizuku
+import rikka.shizuku.Shizuku.OnRequestPermissionResultListener
 
 class LogMonitor(private val context: Context) {
     companion object {
@@ -15,60 +15,92 @@ class LogMonitor(private val context: Context) {
         const val ACTION_LOG_DEBUG = "com.torchlight.auto.LOG_DEBUG"
         const val ACTION_MAP_STATE = "com.torchlight.auto.MAP_STATE"
         const val LOG_PATH = "/sdcard/Android/data/com.xindong.torchlight/files/UE4Game/UE_game/UE_game/Saved/Logs/UE_game.log"
+        const val SHIZUKU_REQ_CODE = 1001
     }
 
-    private var fileObserver: FileObserver? = null
     private var running = false
-    private var lastPosition = 0L
+    private var lastSize = 0L
     private val handler = Handler(Looper.getMainLooper())
+    private val checkInterval = 500L
     private val idTable = mutableMapOf<String, String>()
     private val priceTable = mutableMapOf<String, Float>()
 
-    fun start() {
-        if (running) return
-        val logFile = File(LOG_PATH)
-        if (!logFile.exists()) {
-            sendDebug("❌ 日志文件不存在: $LOG_PATH")
-            return
-        }
-        running = true
-        lastPosition = logFile.length()
-        loadTables()
-        fileObserver = object : FileObserver(logFile.absolutePath, MODIFY or CLOSE_WRITE) {
-            override fun onEvent(event: Int, path: String?) {
-                if (event == MODIFY || event == CLOSE_WRITE) handler.post { readNewLines() }
+    private val permissionListener = OnRequestPermissionResultListener { requestCode, grantResult ->
+        if (requestCode == SHIZUKU_REQ_CODE) {
+            if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                sendDebug("✅ Shizuku 授权成功")
+                doStart()
+            } else {
+                sendDebug("❌ Shizuku 授权被拒绝")
             }
         }
-        fileObserver?.startWatching()
-        sendDebug("🎮 日志监听已启动")
+    }
+
+    init {
+        Shizuku.addRequestPermissionResultListener(permissionListener)
+        loadTables()
+    }
+
+    fun destroy() {
+        Shizuku.removeRequestPermissionResultListener(permissionListener)
+        stop()
+    }
+
+    fun start() {
+        if (running) return
+
+        if (!Shizuku.pingBinder()) {
+            sendDebug("❌ Shizuku 未运行，请先启动 Shizuku")
+            return
+        }
+
+        if (Shizuku.isPreV11()) {
+            sendDebug("❌ Shizuku 版本过低")
+            return
+        }
+
+        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+            doStart()
+        } else {
+            sendDebug("🔄 请求 Shizuku 权限...")
+            Shizuku.requestPermission(SHIZUKU_REQ_CODE)
+        }
+    }
+
+    private fun doStart() {
+        // 检查日志文件是否存在
+        val check = execShizuku("test -f \"$LOG_PATH\" && echo yes || echo no")?.trim()
+        if (check != "yes") {
+            sendDebug("❌ 日志文件不存在，请确认游戏已运行")
+            return
+        }
+
+        running = true
+        val initialSize = execShizuku("wc -c < \"$LOG_PATH\"")?.trim()?.toLongOrNull() ?: 0
+        lastSize = initialSize
+        sendDebug("🎮 日志监听已启动 | 初始大小: $lastSize bytes")
+        sendDebug("📁 $LOG_PATH")
+        handler.post(checkRunnable)
     }
 
     fun stop() {
         running = false
-        fileObserver?.stopWatching()
-        fileObserver = null
+        handler.removeCallbacksAndMessages(null)
         sendDebug("🔴 日志监听已停止")
     }
 
-    private fun readNewLines() {
-        try {
-            val file = File(LOG_PATH)
-            if (!file.exists()) return
-            RandomAccessFile(file, "r").use { raf ->
-                raf.seek(lastPosition)
-                val sb = StringBuilder()
-                var line: String? = null
-                while (true) {
-                    line = raf.readLine()
-                    if (line == null) break
-                    val bytes = line.toByteArray(Charsets.ISO_8859_1)
-                    sb.appendLine(String(bytes, Charsets.UTF_8))
-                }
-                lastPosition = raf.filePointer
-                val newText = sb.toString()
-                if (newText.isNotBlank()) processLog(newText)
+    private val checkRunnable = object : Runnable {
+        override fun run() {
+            if (!running) return
+            val newSize = execShizuku("wc -c < \"$LOG_PATH\"")?.trim()?.toLongOrNull() ?: lastSize
+            if (newSize > lastSize) {
+                val diff = newSize - lastSize
+                val newContent = execShizuku("dd if=\"$LOG_PATH\" bs=1 skip=$lastSize count=$diff 2>/dev/null")
+                newContent?.let { processLog(it) }
+                lastSize = newSize
             }
-        } catch (e: Exception) { sendDebug("❌ 读取日志失败: ${e.message}") }
+            handler.postDelayed(this, checkInterval)
+        }
     }
 
     private fun processLog(text: String) {
@@ -158,6 +190,18 @@ class LogMonitor(private val context: Context) {
         priceTable["100301"] = 0.1f
         priceTable["110000"] = 0.1f
         priceTable["120000"] = 0.5f
+    }
+
+    private fun execShizuku(cmd: String): String? {
+        return try {
+            val process = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+            val result = process.inputStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+            result
+        } catch (e: Exception) {
+            sendDebug("❌ Shizuku 执行失败: ${e.message}")
+            null
+        }
     }
 
     private fun sendDrop(name: String, price: Float, quantity: Int) {
